@@ -1,49 +1,12 @@
 // Gila Browser Extension — Background Service Worker
-// Auto-discovers bridge via HTTP endpoint on fixed port 21525
+// Bridge auto-discovers and auto-reconnects to Gila desktop app
 
 import { GilaBridge } from './bridge.js';
 
-const DISCOVERY_URL = 'http://127.0.0.1:21525/config';
 const bridge = new GilaBridge();
 
-async function autoConnect() {
-  const discovered = await discoverBridge();
-  if (discovered) return;
-
-  // Fallback: try saved config
-  await bridge.loadConfig();
-  if (bridge.port && bridge.token) {
-    bridge.connect();
-  }
-}
-
-async function discoverBridge() {
-  try {
-    const res = await fetch(DISCOVERY_URL);
-    if (!res.ok) return false;
-
-    const config = await res.json();
-    if (config.port && config.token) {
-      console.log('[Gila] Auto-discovered bridge — port:', config.port);
-      bridge.disconnect();
-      bridge.saveConfig(config.port, config.token);
-      bridge.connect();
-      return true;
-    }
-  } catch {
-    // Gila desktop app is not running
-  }
-  return false;
-}
-
-// Re-discover every 15 seconds if disconnected
-setInterval(async () => {
-  if (!bridge.isConnected) {
-    await discoverBridge();
-  }
-}, 15000);
-
-autoConnect();
+// Start: discover and connect
+bridge.discover();
 
 // Listen for messages from content scripts and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -61,10 +24,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     case 'reconnect':
       bridge.disconnect();
-      bridge.saveConfig(null, null);
-      discoverBridge().then((ok) => {
-        if (!ok) console.log('[Gila] Reconnect failed. Is Gila desktop app running?');
-      });
+      bridge.discover();
       sendResponse({ ok: true });
       return true;
 
@@ -102,7 +62,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
 
     case 'pending_save':
-      // Credential captured before page navigation — save it directly if connected
       if (bridge.isConnected && request.password) {
         bridge.send({
           method: 'save_credential',
