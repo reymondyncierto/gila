@@ -187,23 +187,39 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // ===== Save Detection =====
 
+// Track the last password typed (captures it live, before navigation clears it)
+let lastTypedPassword = '';
+let lastTypedUsername = '';
+
 function attachSaveDetection(forms) {
   for (const detected of forms) {
     const { form, usernameField, passwordField } = detected;
     if (!passwordField) continue;
-    if (form && savedFormRefs.has(form)) continue;
-    if (form) savedFormRefs.add(form);
+    if (passwordField.dataset.gilaSave) continue;
+    passwordField.dataset.gilaSave = 'true';
+
+    // Capture password as the user types (before JS can clear it on submit)
+    passwordField.addEventListener('input', () => {
+      lastTypedPassword = passwordField.value;
+    });
+    if (usernameField) {
+      usernameField.addEventListener('input', () => {
+        lastTypedUsername = usernameField.value;
+      });
+    }
 
     const handler = () => {
       if (savePromptShown) return;
-      const username = usernameField?.value || '';
-      const password = passwordField?.value || '';
-      console.log('[Gila] Save handler triggered — username:', username ? 'filled' : 'empty', 'password:', password ? 'filled' : 'empty');
+
+      // Get username from: input field > last typed > page text (for multi-step like Google)
+      const username = usernameField?.value || lastTypedUsername || findUsernameOnPage() || '';
+      const password = passwordField?.value || lastTypedPassword || '';
+
+      console.log('[Gila] Save handler triggered — username:', username ? `"${username}"` : 'empty', 'password:', password ? 'filled' : 'empty');
       if (!password) return;
 
       savePromptShown = true;
 
-      // Check if credentials already exist for this site
       chrome.runtime.sendMessage(
         { type: 'lookup', url: window.location.href },
         (response) => {
@@ -222,31 +238,29 @@ function attachSaveDetection(forms) {
 
     // 1. Native form submit
     if (form) {
-      form.addEventListener('submit', handler);
+      form.addEventListener('submit', () => setTimeout(handler, 100));
     }
 
-    // 2. Click on any button inside or near the form (catches modern JS login buttons)
-    const container = form || passwordField.closest('div, section, main') || document.body;
-    const allButtons = container.querySelectorAll(
-      'button, input[type="submit"], a[role="button"], [role="button"]'
-    );
-    for (const btn of allButtons) {
-      btn.addEventListener('click', () => setTimeout(handler, 200), { once: false });
-    }
+    // 2. Click on ANY button on the page (login buttons vary wildly across sites)
+    document.addEventListener('click', (e) => {
+      const target = e.target.closest('button, [role="button"], input[type="submit"], a');
+      if (!target) return;
+      // Only trigger if password field has been filled
+      if (!passwordField.value && !lastTypedPassword) return;
+      setTimeout(handler, 300);
+    }, { capture: true });
 
-    // 3. Enter key in the password field (common login trigger)
+    // 3. Enter key in the password field
     passwordField.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        setTimeout(handler, 200);
-      }
+      if (e.key === 'Enter') setTimeout(handler, 300);
     });
 
-    // 4. Catch page navigation with filled credentials (SPA or full page redirect)
+    // 4. Catch page navigation — send to background for auto-save
     window.addEventListener('beforeunload', () => {
-      const username = usernameField?.value || '';
-      const password = passwordField?.value || '';
+      const username = usernameField?.value || lastTypedUsername || findUsernameOnPage() || '';
+      const password = passwordField?.value || lastTypedPassword || '';
       if (password && !savePromptShown) {
-        // Can't show UI here, but we can send to background to remember
+        console.log('[Gila] Page navigating with credentials, sending pending_save');
         chrome.runtime.sendMessage({
           type: 'pending_save',
           name: document.title || window.location.hostname,
@@ -257,6 +271,46 @@ function attachSaveDetection(forms) {
       }
     });
   }
+}
+
+/**
+ * For multi-step logins (Google, Microsoft, etc.), the username was entered
+ * on a previous page. Try to find it displayed as text on the current page.
+ * Looks for email-like text near the password field.
+ */
+function findUsernameOnPage() {
+  // Look for a visible element showing an email address (common on step-2 login pages)
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+
+  // Check common selectors used by Google, Microsoft, etc.
+  const selectors = [
+    '[data-identifier]',         // Google
+    '#profileIdentifier',        // Google
+    '.profile-name',             // Various
+    '[data-email]',              // Various
+  ];
+
+  for (const sel of selectors) {
+    const el = document.querySelector(sel);
+    if (el) {
+      const text = el.textContent?.trim() || el.getAttribute('data-identifier') || el.getAttribute('data-email') || '';
+      if (text && emailRegex.test(text)) return text;
+      if (text) return text;
+    }
+  }
+
+  // Fallback: scan visible text near the password field for an email pattern
+  const passField = document.querySelector('input[type="password"]');
+  if (passField) {
+    const container = passField.closest('form') || passField.closest('main, [role="main"], body');
+    if (container) {
+      const text = container.innerText || '';
+      const match = text.match(emailRegex);
+      if (match) return match[0];
+    }
+  }
+
+  return '';
 }
 
 function showSaveBanner(username, password) {
