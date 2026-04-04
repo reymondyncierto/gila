@@ -37,6 +37,9 @@ pub fn run() {
             commands::vault::get_credential,
             commands::vault::search_credentials,
             commands::vault::toggle_favorite,
+            commands::init::initialize_vault,
+            commands::init::verify_master_password,
+            commands::init::is_vault_setup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
