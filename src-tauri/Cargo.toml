@@ -26,6 +26,7 @@ argon2 = "0.5"
 aes-gcm = "0.10"
 rand = "0.8"
 rusqlite = { version = "0.31", features = ["bundled"] }
+arboard = "3"
 uuid = { version = "1", features = ["v4"] }
 zeroize = { version = "1", features = ["derive"] }
 

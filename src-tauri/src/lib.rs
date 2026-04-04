@@ -1,3 +1,4 @@
+pub mod clipboard;
 pub mod commands;
 pub mod crypto;
 pub mod db;
@@ -42,6 +43,7 @@ pub fn run() {
             commands::init::verify_master_password,
             commands::init::is_vault_setup,
             commands::generator::generate_password,
+            commands::clipboard::copy_to_clipboard,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
