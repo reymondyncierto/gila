@@ -63,11 +63,13 @@ function renderCredentials(credentials, tabId) {
   for (const cred of credentials) {
     const item = document.createElement('div');
     item.className = 'credential-item';
+    const displayName = cred.username || cred.name;
+    const subtitle = cred.username ? cred.name : 'Click to auto-fill';
     item.innerHTML = `
       <span class="credential-icon">\uD83C\uDF10</span>
       <div class="credential-info">
-        <div class="credential-name">${escapeHtml(cred.name)}</div>
-        <div class="credential-username">Click to auto-fill</div>
+        <div class="credential-name">${escapeHtml(displayName)}</div>
+        <div class="credential-username">${escapeHtml(subtitle)}</div>
       </div>
     `;
     item.addEventListener('click', () => fillCredential(cred.id, tabId));

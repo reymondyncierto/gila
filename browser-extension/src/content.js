@@ -173,13 +173,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.type === 'get_form_values') {
     if (detectedForms.length === 0) {
-      sendResponse(null);
+      // Even without detected forms, try to find a username on the page
+      const pageUser = findUsernameOnPage();
+      sendResponse({
+        username: pageUser,
+        password: '',
+        url: window.location.href,
+        hostname: window.location.hostname,
+      });
       return true;
     }
     const form = detectedForms[0];
     sendResponse({
-      username: form.usernameField?.value || '',
-      password: form.passwordField?.value || '',
+      username: form.usernameField?.value || lastTypedUsername || findUsernameOnPage() || '',
+      password: form.passwordField?.value || lastTypedPassword || '',
       url: window.location.href,
       hostname: window.location.hostname,
     });

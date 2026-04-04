@@ -196,23 +196,67 @@ fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -
 
             let url = request["url"].as_str().unwrap_or("");
             let username = request["username"].as_str();
-            match db::match_credentials_by_url_and_user(&state.db, url, username) {
-                Ok(rows) => {
-                    let items: Vec<serde_json::Value> = rows
-                        .into_iter()
-                        .map(|r| {
-                            serde_json::json!({
-                                "id": r.id,
-                                "name": r.name,
-                                "cred_type": r.cred_type,
-                                "favorite": r.favorite,
-                            })
-                        })
-                        .collect();
-                    serde_json::json!({ "result": items }).to_string()
+
+            // Get full rows with search_index to extract stored usernames
+            let domain = db::extract_domain(url).unwrap_or_default();
+            let domain_pattern = format!("%{}%", domain.to_lowercase());
+            let conn = state.db.conn();
+            let mut stmt = match conn.prepare(
+                "SELECT id, cred_type, name, favorite, search_index FROM credentials WHERE cred_type = 'login' AND (LOWER(search_index) LIKE ?1 OR LOWER(name) LIKE ?1) ORDER BY updated_at DESC",
+            ) {
+                Ok(s) => s,
+                Err(e) => return serde_json::json!({ "error": e.to_string() }).to_string(),
+            };
+
+            let email_re = regex_lite::Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap();
+
+            let rows: Vec<(String, String, String, bool, String)> = {
+                let result = stmt
+                    .query_map(rusqlite::params![domain_pattern], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i32>(3)? != 0,
+                            row.get::<_, String>(4)?,
+                        ))
+                    });
+                match result {
+                    Ok(r) => r.filter_map(|r| r.ok()).collect(),
+                    Err(e) => return serde_json::json!({ "error": e.to_string() }).to_string(),
                 }
-                Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
-            }
+            };
+            drop(stmt);
+            drop(conn);
+
+            // Filter by username if provided
+            let filtered: Vec<&(String, String, String, bool, String)> = if let Some(user) = username {
+                let user_lower = user.to_lowercase();
+                if !user_lower.is_empty() {
+                    let matches: Vec<_> = rows.iter().filter(|r| r.4.to_lowercase().contains(&user_lower)).collect();
+                    if !matches.is_empty() { matches } else { rows.iter().collect() }
+                } else {
+                    rows.iter().collect()
+                }
+            } else {
+                rows.iter().collect()
+            };
+
+            let items: Vec<serde_json::Value> = filtered
+                .into_iter()
+                .map(|r| {
+                    // Extract email from search_index for display
+                    let stored_email = email_re.find(&r.4).map(|m| m.as_str()).unwrap_or("");
+                    serde_json::json!({
+                        "id": r.0,
+                        "name": r.2,
+                        "cred_type": r.1,
+                        "favorite": r.3,
+                        "username": stored_email,
+                    })
+                })
+                .collect();
+            serde_json::json!({ "result": items }).to_string()
         }
 
         "get_credential" => {
