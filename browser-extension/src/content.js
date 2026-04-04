@@ -99,15 +99,12 @@ function onFormsDetected(forms) {
       let matches = response?.result || [];
 
       // Filter: only show credentials whose username matches the email on the page
+      // If email is detected but no credential matches it, show NOTHING (not wrong suggestions)
       if (detectedUser) {
         const userLower = detectedUser.toLowerCase();
-        const filtered = matches.filter(c =>
+        matches = matches.filter(c =>
           c.username && c.username.toLowerCase() === userLower
         );
-        // Use filtered if we found matches, otherwise show all (fallback)
-        if (filtered.length > 0) {
-          matches = filtered;
-        }
       }
 
       if (matches.length > 0) {
@@ -312,15 +309,16 @@ function findUsernameOnPage() {
   // 2. Scan ALL visible text on the page for an email near the password field
   const passField = document.querySelector('input[type="password"]');
 
-  // Try the entire page body — the email is visible somewhere
+  // Scan the entire visible page text for email addresses
   const bodyText = document.body?.innerText || '';
   const allEmails = bodyText.match(new RegExp(emailRegex.source, 'g'));
   if (allEmails && allEmails.length > 0) {
-    // Return the first email found that looks like a user email (not a google.com system email)
+    // Return the first email that isn't a system/noreply address
     for (const email of allEmails) {
-      if (!email.endsWith('@google.com') && !email.endsWith('@gmail.com')) return email;
+      const lower = email.toLowerCase();
+      if (lower.startsWith('noreply@') || lower.startsWith('no-reply@')) continue;
+      return email;
     }
-    // If all are google/gmail, return the first one
     return allEmails[0];
   }
 
