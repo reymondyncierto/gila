@@ -1,3 +1,5 @@
+import { useTheme } from "../../hooks/useTheme";
+
 export type Category =
   | "all"
   | "login"
@@ -13,16 +15,24 @@ interface SidebarProps {
 }
 
 const categories: { key: Category; label: string; icon: string }[] = [
-  { key: "all", label: "All Items", icon: "🔐" },
-  { key: "login", label: "Logins", icon: "🌐" },
-  { key: "app_password", label: "App Passwords", icon: "📱" },
-  { key: "api_key", label: "API Keys", icon: "🔑" },
-  { key: "wifi", label: "Wi-Fi", icon: "📶" },
-  { key: "secure_note", label: "Secure Notes", icon: "📝" },
-  { key: "favorites", label: "Favorites", icon: "⭐" },
+  { key: "all", label: "All Items", icon: "\uD83D\uDD10" },
+  { key: "login", label: "Logins", icon: "\uD83C\uDF10" },
+  { key: "app_password", label: "App Passwords", icon: "\uD83D\uDCF1" },
+  { key: "api_key", label: "API Keys", icon: "\uD83D\uDD11" },
+  { key: "wifi", label: "Wi-Fi", icon: "\uD83D\uDCF6" },
+  { key: "secure_note", label: "Secure Notes", icon: "\uD83D\uDCDD" },
+  { key: "favorites", label: "Favorites", icon: "\u2B50" },
+];
+
+const themeOptions = [
+  { value: "system" as const, label: "Auto" },
+  { value: "light" as const, label: "Light" },
+  { value: "dark" as const, label: "Dark" },
 ];
 
 export default function Sidebar({ selected, onSelect }: SidebarProps) {
+  const { theme, setTheme } = useTheme();
+
   return (
     <aside className="w-64 h-full flex flex-col border-r border-white/10 bg-white/5 backdrop-blur-xl">
       <div className="p-6 pb-4">
@@ -47,6 +57,24 @@ export default function Sidebar({ selected, onSelect }: SidebarProps) {
           </button>
         ))}
       </nav>
+
+      <div className="p-3 border-t border-white/10">
+        <div className="flex rounded-lg bg-white/5 p-0.5">
+          {themeOptions.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setTheme(opt.value)}
+              className={`flex-1 py-1 text-xs rounded-md transition-colors ${
+                theme === opt.value
+                  ? "bg-white/15 text-white"
+                  : "text-white/40 hover:text-white/60"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </aside>
   );
 }
