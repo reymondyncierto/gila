@@ -90,12 +90,26 @@ function onFormsDetected(forms) {
   attachSaveDetection(forms);
 
   // Query vault for matching credentials and show inline icons
-  // Include detected username so the backend can narrow results
+  // Only show credentials matching the email currently on the page
   const detectedUser = forms[0]?.usernameField?.value || findUsernameOnPage() || '';
+  console.log('[Gila] Detected user on page:', detectedUser || '(none)');
   chrome.runtime.sendMessage(
     { type: 'lookup', url: window.location.href, username: detectedUser },
     (response) => {
-      const matches = response?.result || [];
+      let matches = response?.result || [];
+
+      // Filter: only show credentials whose username matches the email on the page
+      if (detectedUser) {
+        const userLower = detectedUser.toLowerCase();
+        const filtered = matches.filter(c =>
+          c.username && c.username.toLowerCase() === userLower
+        );
+        // Use filtered if we found matches, otherwise show all (fallback)
+        if (filtered.length > 0) {
+          matches = filtered;
+        }
+      }
+
       if (matches.length > 0) {
         attachInlineIcons(forms, matches);
         showAutoFillBar(forms, matches);
