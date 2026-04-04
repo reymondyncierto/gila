@@ -1,14 +1,18 @@
-use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener as TokioTcpListener;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::crypto;
 use crate::db;
 use crate::state::AppState;
+
+/// Fixed port for the HTTP discovery endpoint.
+/// The extension fetches http://127.0.0.1:21525/config to get the WS port + token.
+const DISCOVERY_PORT: u16 = 21525;
 
 /// Generate a random auth token.
 fn generate_token() -> String {
@@ -23,8 +27,7 @@ fn bridge_dir() -> PathBuf {
     home.join(".gila")
 }
 
-/// Start the WebSocket bridge server on a random port on 127.0.0.1.
-/// Writes port and token to ~/.gila/bridge.port and ~/.gila/bridge.token.
+/// Start both the WebSocket bridge and the HTTP discovery endpoint.
 pub fn start_bridge(state: Arc<AppState>) {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
@@ -35,29 +38,83 @@ pub fn start_bridge(state: Arc<AppState>) {
 }
 
 async fn run_server(state: Arc<AppState>) {
-    // Bind to a random available port
-    let listener = TokioTcpListener::bind("127.0.0.1:0")
+    // Bind WebSocket server to a random port
+    let ws_listener = TokioTcpListener::bind("127.0.0.1:0")
         .await
         .expect("failed to bind bridge server");
-    let addr = listener.local_addr().expect("no local addr");
-    let port = addr.port();
+    let ws_addr = ws_listener.local_addr().expect("no local addr");
+    let ws_port = ws_addr.port();
     let token = generate_token();
 
-    // Write discovery files
+    // Write discovery files (for native host fallback)
     let dir = bridge_dir();
     std::fs::create_dir_all(&dir).ok();
-    std::fs::write(dir.join("bridge.port"), port.to_string()).ok();
+    std::fs::write(dir.join("bridge.port"), ws_port.to_string()).ok();
     std::fs::write(dir.join("bridge.token"), &token).ok();
 
-    eprintln!("[bridge] WebSocket server listening on 127.0.0.1:{}", port);
+    eprintln!("[bridge] WebSocket server listening on 127.0.0.1:{}", ws_port);
 
+    // Start HTTP discovery endpoint on fixed port
+    let discovery_token = token.clone();
+    tokio::spawn(async move {
+        run_discovery_server(ws_port, discovery_token).await;
+    });
+
+    // Accept WebSocket connections
     loop {
-        if let Ok((stream, _)) = listener.accept().await {
+        if let Ok((stream, _)) = ws_listener.accept().await {
             let state = Arc::clone(&state);
             let token = token.clone();
             tokio::spawn(async move {
                 handle_connection(stream, state, token).await;
             });
+        }
+    }
+}
+
+/// HTTP server on a fixed port that returns the WS port + token.
+/// The browser extension fetches this to auto-discover the bridge.
+async fn run_discovery_server(ws_port: u16, token: String) {
+    let listener = match TokioTcpListener::bind(format!("127.0.0.1:{}", DISCOVERY_PORT)).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("[bridge] Discovery server failed to bind on port {}: {}", DISCOVERY_PORT, e);
+            return;
+        }
+    };
+
+    eprintln!("[bridge] Discovery server listening on 127.0.0.1:{}", DISCOVERY_PORT);
+
+    loop {
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let body = serde_json::json!({
+                "port": ws_port,
+                "token": token,
+            })
+            .to_string();
+
+            // Respond to any HTTP request with the config JSON
+            // Include CORS headers so the extension can fetch it
+            let response = format!(
+                "HTTP/1.1 200 OK\r\n\
+                 Content-Type: application/json\r\n\
+                 Content-Length: {}\r\n\
+                 Access-Control-Allow-Origin: *\r\n\
+                 Access-Control-Allow-Methods: GET\r\n\
+                 Connection: close\r\n\
+                 \r\n\
+                 {}",
+                body.len(),
+                body
+            );
+
+            // Read the request first (consume it)
+            let mut buf = [0u8; 1024];
+            let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await;
+
+            // Send response
+            let _ = stream.write_all(response.as_bytes()).await;
+            let _ = stream.shutdown().await;
         }
     }
 }
@@ -86,9 +143,7 @@ async fn handle_connection(
             Ok(v) => v,
             Err(_) => {
                 let _ = write
-                    .send(Message::Text(
-                        r#"{"error":"invalid_json"}"#.to_string(),
-                    ))
+                    .send(Message::Text(r#"{"error":"invalid_json"}"#.to_string()))
                     .await;
                 continue;
             }
@@ -96,30 +151,23 @@ async fn handle_connection(
 
         let method = request["method"].as_str().unwrap_or("");
 
-        // Auth check — first message must be "auth" with the correct token
         if !authenticated {
             if method == "auth" {
                 let tok = request["token"].as_str().unwrap_or("");
                 if tok == expected_token {
                     authenticated = true;
                     let _ = write
-                        .send(Message::Text(
-                            r#"{"result":"authenticated"}"#.to_string(),
-                        ))
+                        .send(Message::Text(r#"{"result":"authenticated"}"#.to_string()))
                         .await;
                 } else {
                     let _ = write
-                        .send(Message::Text(
-                            r#"{"error":"invalid_token"}"#.to_string(),
-                        ))
+                        .send(Message::Text(r#"{"error":"invalid_token"}"#.to_string()))
                         .await;
                     break;
                 }
             } else {
                 let _ = write
-                    .send(Message::Text(
-                        r#"{"error":"auth_required"}"#.to_string(),
-                    ))
+                    .send(Message::Text(r#"{"error":"auth_required"}"#.to_string()))
                     .await;
             }
             continue;
@@ -130,23 +178,15 @@ async fn handle_connection(
     }
 }
 
-fn handle_message(
-    method: &str,
-    request: &serde_json::Value,
-    state: &AppState,
-) -> String {
+fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -> String {
     match method {
         "status" => {
             let auth = state.auth.lock().expect("auth mutex poisoned");
             let locked = auth.is_locked();
-            serde_json::json!({
-                "result": { "locked": locked }
-            })
-            .to_string()
+            serde_json::json!({ "result": { "locked": locked } }).to_string()
         }
 
         "lookup" => {
-            // Check if vault is unlocked
             {
                 let auth = state.auth.lock().expect("auth mutex poisoned");
                 if auth.is_locked() {
@@ -190,23 +230,21 @@ fn handle_message(
             };
 
             match db::get_credential(&state.db, id) {
-                Ok(row) => {
-                    match crypto::decrypt(key.as_bytes(), &row.data) {
-                        Ok(decrypted) => {
-                            let data_str = String::from_utf8_lossy(&decrypted);
-                            serde_json::json!({
-                                "result": {
-                                    "id": row.id,
-                                    "name": row.name,
-                                    "cred_type": row.cred_type,
-                                    "data": serde_json::from_str::<serde_json::Value>(&data_str).unwrap_or_default(),
-                                }
-                            })
-                            .to_string()
-                        }
-                        Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+                Ok(row) => match crypto::decrypt(key.as_bytes(), &row.data) {
+                    Ok(decrypted) => {
+                        let data_str = String::from_utf8_lossy(&decrypted);
+                        serde_json::json!({
+                            "result": {
+                                "id": row.id,
+                                "name": row.name,
+                                "cred_type": row.cred_type,
+                                "data": serde_json::from_str::<serde_json::Value>(&data_str).unwrap_or_default(),
+                            }
+                        })
+                        .to_string()
                     }
-                }
+                    Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+                },
                 Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
             }
         }
@@ -240,17 +278,23 @@ fn handle_message(
             let data_str = data.to_string();
 
             let domain = db::extract_domain(url).unwrap_or_default();
-            let search_index = format!("{} {} {} {}", name, domain, url, username).to_lowercase();
+            let search_index =
+                format!("{} {} {} {}", name, domain, url, username).to_lowercase();
 
             match crypto::encrypt(&key, data_str.as_bytes()) {
                 Ok(encrypted) => {
                     let id = uuid::Uuid::new_v4().to_string();
-                    match db::create_credential(&state.db, &id, "login", name, &search_index, &encrypted)
-                    {
-                        Ok(_) => serde_json::json!({
-                            "result": { "id": id, "name": name }
-                        })
-                        .to_string(),
+                    match db::create_credential(
+                        &state.db,
+                        &id,
+                        "login",
+                        name,
+                        &search_index,
+                        &encrypted,
+                    ) {
+                        Ok(_) => {
+                            serde_json::json!({ "result": { "id": id, "name": name } }).to_string()
+                        }
                         Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
                     }
                 }

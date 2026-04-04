@@ -1,74 +1,47 @@
 // Gila Browser Extension — Background Service Worker
-// Hub for WebSocket bridge and message routing
-// Auto-discovers bridge connection via Native Messaging or file-based config
+// Auto-discovers bridge via HTTP endpoint on fixed port 21525
 
 import { GilaBridge } from './bridge.js';
 
-const NATIVE_HOST_NAME = 'com.rpyncierto.gila';
+const DISCOVERY_URL = 'http://127.0.0.1:21525/config';
 const bridge = new GilaBridge();
 
-// Auto-discover bridge config on startup
 async function autoConnect() {
-  // Always try native messaging first to get fresh config
-  const discovered = await discoverViaNativeMessaging();
+  const discovered = await discoverBridge();
+  if (discovered) return;
 
-  if (discovered) return; // Connected via native messaging
-
-  // Fallback: try saved config (may be stale)
+  // Fallback: try saved config
   await bridge.loadConfig();
   if (bridge.port && bridge.token) {
     bridge.connect();
-    // If stale config fails, clear it
-    setTimeout(() => {
-      if (!bridge.isConnected) {
-        console.log('[Gila] Saved config is stale, clearing.');
-        bridge.saveConfig(null, null);
-      }
-    }, 3000);
   }
 }
 
-function discoverViaNativeMessaging() {
-  return new Promise((resolve) => {
-    try {
-      chrome.runtime.sendNativeMessage(
-        NATIVE_HOST_NAME,
-        { action: 'get_config' },
-        (response) => {
-          const err = chrome.runtime.lastError;
-          if (err) {
-            console.log('[Gila] Native messaging not available:', err.message);
-            resolve(false);
-            return;
-          }
+async function discoverBridge() {
+  try {
+    const res = await fetch(DISCOVERY_URL);
+    if (!res.ok) return false;
 
-          if (response && response.port && response.token) {
-            console.log('[Gila] Auto-discovered bridge — port:', response.port);
-            bridge.disconnect();
-            bridge.saveConfig(response.port, response.token);
-            bridge.connect();
-            resolve(true);
-          } else if (response?.error) {
-            console.warn('[Gila] Native host:', response.message || response.error);
-            resolve(false);
-          } else {
-            resolve(false);
-          }
-        }
-      );
-    } catch (e) {
-      console.log('[Gila] Native messaging not installed.');
-      resolve(false);
+    const config = await res.json();
+    if (config.port && config.token) {
+      console.log('[Gila] Auto-discovered bridge — port:', config.port);
+      bridge.disconnect();
+      bridge.saveConfig(config.port, config.token);
+      bridge.connect();
+      return true;
     }
-  });
+  } catch {
+    // Gila desktop app is not running
+  }
+  return false;
 }
 
-// Periodically re-discover if disconnected (handles Gila restart / new port)
+// Re-discover every 15 seconds if disconnected
 setInterval(async () => {
   if (!bridge.isConnected) {
-    await discoverViaNativeMessaging();
+    await discoverBridge();
   }
-}, 30000);
+}, 15000);
 
 autoConnect();
 
@@ -87,15 +60,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
 
     case 'reconnect':
-      // Clear stale config and re-discover
       bridge.disconnect();
       bridge.saveConfig(null, null);
-      discoverViaNativeMessaging().then((ok) => {
-        if (!ok) {
-          // Fallback: read files directly isn't possible from extension,
-          // so tell the user native messaging needs to be installed
-          console.log('[Gila] Reconnect failed. Native messaging host may need to be reinstalled.');
-        }
+      discoverBridge().then((ok) => {
+        if (!ok) console.log('[Gila] Reconnect failed. Is Gila desktop app running?');
       });
       sendResponse({ ok: true });
       return true;
