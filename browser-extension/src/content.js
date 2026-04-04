@@ -72,11 +72,13 @@ let activeInlineDropdown = null;
 
 function onFormsDetected(forms) {
   detectedForms = forms;
+  const pageEmail = findUsernameOnPage();
   console.log('[Gila] Detected', forms.length, 'login form(s)',
     forms.map(f => ({
       username: f.usernameField?.name || f.usernameField?.id || '(none)',
       password: f.passwordField?.name || f.passwordField?.id || '(none)',
-    }))
+    })),
+    'pageEmail:', pageEmail || '(not found)'
   );
   chrome.runtime.sendMessage({
     type: 'forms_detected',
@@ -294,28 +296,43 @@ function attachSaveDetection(forms) {
  * Looks for email-like text near the password field.
  */
 function findUsernameOnPage() {
-  // Look for a visible element showing an email address (common on step-2 login pages)
   const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
 
-  // Check common selectors used by Google, Microsoft, etc.
+  // 1. Check specific selectors used by Google, Microsoft, etc.
   const selectors = [
     '[data-identifier]',         // Google
     '#profileIdentifier',        // Google
     '.profile-name',             // Various
     '[data-email]',              // Various
+    '#headingText + div',        // Google "Hi Name" followed by email
+    'div[jsname] a[aria-label]', // Google account switcher
   ];
 
   for (const sel of selectors) {
-    const el = document.querySelector(sel);
-    if (el) {
-      const text = el.textContent?.trim() || el.getAttribute('data-identifier') || el.getAttribute('data-email') || '';
-      if (text && emailRegex.test(text)) return text;
-      if (text) return text;
-    }
+    try {
+      const el = document.querySelector(sel);
+      if (el) {
+        const text = el.textContent?.trim() || el.getAttribute('data-identifier') || el.getAttribute('data-email') || el.getAttribute('aria-label') || '';
+        if (text && emailRegex.test(text)) return text.match(emailRegex)[0];
+      }
+    } catch {}
   }
 
-  // Fallback: scan visible text near the password field for an email pattern
+  // 2. Scan ALL visible text on the page for an email near the password field
   const passField = document.querySelector('input[type="password"]');
+
+  // Try the entire page body — the email is visible somewhere
+  const bodyText = document.body?.innerText || '';
+  const allEmails = bodyText.match(new RegExp(emailRegex.source, 'g'));
+  if (allEmails && allEmails.length > 0) {
+    // Return the first email found that looks like a user email (not a google.com system email)
+    for (const email of allEmails) {
+      if (!email.endsWith('@google.com') && !email.endsWith('@gmail.com')) return email;
+    }
+    // If all are google/gmail, return the first one
+    return allEmails[0];
+  }
+
   if (passField) {
     const container = passField.closest('form') || passField.closest('main, [role="main"], body');
     if (container) {
