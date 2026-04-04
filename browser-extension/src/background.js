@@ -27,33 +27,27 @@ async function autoConnect() {
 }
 
 function discoverViaNativeMessaging() {
-  try {
-    const port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+  chrome.runtime.sendNativeMessage(
+    NATIVE_HOST_NAME,
+    { action: 'get_config' },
+    (response) => {
+      const err = chrome.runtime.lastError;
+      if (err) {
+        console.log('[Gila] Native messaging not available:', err.message);
+        console.log('[Gila] Use the popup settings to configure manually.');
+        return;
+      }
 
-    port.onMessage.addListener((response) => {
-      if (response.port && response.token) {
-        console.log('[Gila] Auto-discovered bridge config via native messaging');
+      if (response && response.port && response.token) {
+        console.log('[Gila] Auto-discovered bridge — port:', response.port);
+        bridge.disconnect();
         bridge.saveConfig(response.port, response.token);
         bridge.connect();
-      } else if (response.error) {
+      } else if (response?.error) {
         console.warn('[Gila] Native host error:', response.message || response.error);
       }
-      port.disconnect();
-    });
-
-    port.onDisconnect.addListener(() => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        console.log('[Gila] Native messaging not available:', error.message);
-        console.log('[Gila] Use the popup settings to configure manually.');
-      }
-    });
-
-    // Send request for config
-    port.postMessage({ action: 'get_config' });
-  } catch (e) {
-    console.log('[Gila] Native messaging not installed. Use popup to configure manually.');
-  }
+    }
+  );
 }
 
 // Also periodically refresh config in case Gila was restarted (new port)
