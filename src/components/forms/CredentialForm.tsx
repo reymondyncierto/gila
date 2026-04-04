@@ -2,6 +2,7 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { CredentialType } from "../../types/credentials";
 import { credTypeLabels } from "../../types/credentials";
+import PasswordGenerator from "../generator/PasswordGenerator";
 
 interface CredentialFormProps {
   mode: "create" | "edit";
@@ -72,6 +73,7 @@ export default function CredentialForm({
   const [fields, setFields] = useState<Record<string, string>>(initialData || {});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [generatorTarget, setGeneratorTarget] = useState<string | null>(null);
 
   const currentFields = fieldsByType[credType];
 
@@ -190,13 +192,33 @@ export default function CredentialForm({
                   required={f.required}
                 />
               ) : (
-                <input
-                  type={f.type || "text"}
-                  value={fields[f.key] || ""}
-                  onChange={(e) => updateField(f.key, e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-white/30 focus:outline-none focus:border-white/30 transition-colors"
-                  placeholder={f.placeholder}
-                  required={f.required}
+                <div className="flex gap-2">
+                  <input
+                    type={f.type || "text"}
+                    value={fields[f.key] || ""}
+                    onChange={(e) => updateField(f.key, e.target.value)}
+                    className="flex-1 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-white/30 focus:outline-none focus:border-white/30 transition-colors"
+                    placeholder={f.placeholder}
+                    required={f.required}
+                  />
+                  {f.type === "password" && (
+                    <button
+                      type="button"
+                      onClick={() => setGeneratorTarget(generatorTarget === f.key ? null : f.key)}
+                      className="px-3 py-2.5 text-xs rounded-lg bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70 transition-colors shrink-0"
+                    >
+                      Gen
+                    </button>
+                  )}
+                </div>
+              )}
+              {generatorTarget === f.key && (
+                <PasswordGenerator
+                  onUse={(pw) => {
+                    updateField(f.key, pw);
+                    setGeneratorTarget(null);
+                  }}
+                  onClose={() => setGeneratorTarget(null)}
                 />
               )}
             </div>
