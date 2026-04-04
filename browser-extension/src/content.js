@@ -75,6 +75,17 @@ function onFormsDetected(forms) {
 
   // Attach save detection to newly detected forms
   attachSaveDetection(forms);
+
+  // Query vault for matching credentials and show inline icons
+  chrome.runtime.sendMessage(
+    { type: 'lookup', url: window.location.href },
+    (response) => {
+      const matches = response?.result || [];
+      if (matches.length > 0) {
+        attachInlineIcons(forms, matches);
+      }
+    }
+  );
 }
 
 // Initial scan
@@ -257,4 +268,101 @@ function escapeForHTML(text) {
   const d = document.createElement('div');
   d.textContent = text;
   return d.innerHTML;
+}
+
+// ===== Inline Suggestion Icons =====
+
+let activeInlineDropdown = null;
+
+function attachInlineIcons(forms, credentials) {
+  for (const detected of forms) {
+    const fields = [detected.usernameField, detected.passwordField].filter(Boolean);
+    for (const field of fields) {
+      if (field.dataset.gilaIcon) continue;
+      field.dataset.gilaIcon = 'true';
+
+      const parent = field.parentElement;
+      if (parent && getComputedStyle(parent).position === 'static') {
+        parent.style.position = 'relative';
+      }
+
+      const icon = document.createElement('div');
+      icon.style.cssText = `
+        position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+        width: 20px; height: 20px; cursor: pointer; z-index: 2147483646;
+        opacity: 0.6; transition: opacity 0.2s;
+        display: flex; align-items: center; justify-content: center;
+        background: #1a1a2e; border-radius: 4px;
+        font-size: 11px; font-weight: 700; color: #4ade80;
+      `;
+      icon.textContent = 'G';
+      icon.addEventListener('mouseenter', () => { icon.style.opacity = '1'; });
+      icon.addEventListener('mouseleave', () => { icon.style.opacity = '0.6'; });
+
+      if (parent) parent.appendChild(icon);
+      else field.insertAdjacentElement('afterend', icon);
+
+      // Pad input text
+      const padR = parseInt(getComputedStyle(field).paddingRight) || 0;
+      if (padR < 32) field.style.paddingRight = '32px';
+
+      icon.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        showInlineDropdown(icon, credentials);
+      });
+    }
+  }
+}
+
+function showInlineDropdown(icon, credentials) {
+  if (activeInlineDropdown) { activeInlineDropdown.remove(); activeInlineDropdown = null; return; }
+
+  const host = document.createElement('div');
+  host.style.cssText = 'position:absolute;right:0;top:calc(100% + 4px);z-index:2147483647;';
+
+  const shadow = host.attachShadow({ mode: 'closed' });
+  shadow.innerHTML = `
+    <style>
+      .dd{width:250px;background:#0f0f1a;border:1px solid rgba(255,255,255,0.12);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.5);overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+      .hd{padding:8px 12px;font-size:10px;font-weight:600;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.06)}
+      .it{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;transition:background 0.15s}
+      .it:hover{background:rgba(255,255,255,0.06)}
+      .nm{font-size:12px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .ht{font-size:10px;color:rgba(255,255,255,0.35)}
+    </style>
+    <div class="dd">
+      <div class="hd">Gila Vault</div>
+      ${credentials.map(c => `<div class="it" data-id="${c.id}"><span style="font-size:16px">\uD83C\uDF10</span><div><div class="nm">${escapeForHTML(c.name)}</div><div class="ht">Click to fill</div></div></div>`).join('')}
+    </div>
+  `;
+
+  shadow.querySelectorAll('.it').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const credId = item.dataset.id;
+      chrome.runtime.sendMessage({ type: 'get_credential', id: credId }, (res) => {
+        if (res?.result?.data) {
+          fillCredential(res.result.data.username || '', res.result.data.password || '');
+        }
+      });
+      host.remove();
+      activeInlineDropdown = null;
+    });
+  });
+
+  icon.parentElement.appendChild(host);
+  activeInlineDropdown = host;
+
+  const close = (e) => {
+    if (!host.contains(e.target) && e.target !== icon) {
+      host.remove(); activeInlineDropdown = null;
+      document.removeEventListener('click', close);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', close), 0);
+
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape') { host.remove(); activeInlineDropdown = null; document.removeEventListener('keydown', esc); }
+  });
 }

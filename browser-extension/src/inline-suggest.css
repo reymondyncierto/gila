@@ -1,0 +1,10 @@
+/* Gila Browser Extension — Inline Suggestion Styles */
+/* Minimal styles for the icon; dropdown uses Shadow DOM to avoid conflicts */
+
+.gila-inline-icon {
+  pointer-events: auto !important;
+}
+
+.gila-inline-icon:focus {
+  outline: none;
+}
