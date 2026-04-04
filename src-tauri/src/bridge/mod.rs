@@ -433,7 +433,7 @@ fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -
                 if let Some(window) = handle.get_webview_window("main") {
                     let _ = window.show();
                     let _ = window.unminimize();
-                    let _ = window.eval("if(!document.querySelector('#root')?.children.length) location.reload();");
+                    let _ = window.eval("location.reload();");
                     let _ = window.set_focus();
                 }
             }

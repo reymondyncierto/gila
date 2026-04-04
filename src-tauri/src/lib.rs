@@ -18,8 +18,7 @@ use tauri::tray::TrayIconBuilder;
 fn show_window(window: &tauri::WebviewWindow) {
     let _ = window.show();
     let _ = window.unminimize();
-    // Reload if the page failed to load initially (e.g. dev server wasn't ready)
-    let _ = window.eval("if(!document.querySelector('#root')?.children.length) location.reload();");
+    let _ = window.eval("location.reload();");
     let _ = window.set_focus();
 }
 
