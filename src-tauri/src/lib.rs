@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod bridge;
 pub mod clipboard;
 pub mod commands;
 pub mod crypto;
@@ -7,7 +8,7 @@ pub mod generator;
 pub mod state;
 
 use state::AppState;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -25,10 +26,23 @@ pub fn run() {
             let pool = db::DbPool::new(&db_path).expect("failed to open database");
             db::initialize_db(&pool).expect("failed to initialize database");
 
+            let key = Arc::new(Mutex::new(None));
+            let auth_state = Arc::new(Mutex::new(auth::AuthState::new()));
+
+            // Start the WebSocket bridge with its own DB connection
+            let bridge_pool = db::DbPool::new(&db_path).expect("failed to open bridge database");
+            db::initialize_db(&bridge_pool).ok();
+            let bridge_state = Arc::new(AppState {
+                db: bridge_pool,
+                key: Arc::clone(&key),
+                auth: Arc::clone(&auth_state),
+            });
+            bridge::start_bridge(bridge_state);
+
             app.manage(AppState {
                 db: pool,
-                key: Mutex::new(None),
-                auth: Mutex::new(auth::AuthState::new()),
+                key,
+                auth: auth_state,
             });
 
             Ok(())

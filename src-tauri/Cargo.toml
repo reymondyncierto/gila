@@ -27,6 +27,11 @@ aes-gcm = "0.10"
 rand = "0.8"
 rusqlite = { version = "0.31", features = ["bundled"] }
 arboard = "3"
+dirs = "6"
+hex = "0.4"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "io-util"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
 keyring = "3"
 uuid = { version = "1", features = ["v4"] }
 zeroize = { version = "1", features = ["derive"] }
