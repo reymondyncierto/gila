@@ -8,6 +8,51 @@ const bridge = new GilaBridge();
 // Start: discover and connect
 bridge.discover();
 
+// Watch for tab navigation — when a user leaves a login page after typing credentials,
+// check storage for pending credentials and auto-save them
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
+  if (changeInfo.status !== 'complete') return;
+  if (!bridge.isConnected) return;
+
+  try {
+    const data = await chrome.storage.session.get('pendingCredential');
+    const cred = data.pendingCredential;
+    if (!cred) return;
+
+    // Only process if less than 60 seconds old
+    if (Date.now() - cred.timestamp > 60000) {
+      chrome.storage.session.remove('pendingCredential');
+      return;
+    }
+
+    // Get the current tab's URL to see if we navigated away from the login page
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab?.url) return;
+
+    // If we're still on the same login page, don't save yet
+    if (tab.url.includes('signin') || tab.url.includes('login') || tab.url.includes('auth')) return;
+
+    console.log('[Gila] Tab navigated after login — auto-saving credential for', cred.username);
+
+    const result = await bridge.send({
+      method: 'save_credential',
+      name: cred.name,
+      url: cred.url,
+      username: cred.username,
+      password: cred.password,
+    });
+
+    if (result?.result) {
+      console.log('[Gila] Auto-saved credential:', result.result.name);
+    }
+
+    // Clear pending credential
+    chrome.storage.session.remove('pendingCredential');
+  } catch (e) {
+    console.log('[Gila] Error checking pending credential:', e);
+  }
+});
+
 // Listen for messages from content scripts and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   switch (request.type) {

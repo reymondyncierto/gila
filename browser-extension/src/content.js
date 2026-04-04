@@ -210,9 +210,23 @@ function attachSaveDetection(forms) {
     if (passwordField.dataset.gilaSave) continue;
     passwordField.dataset.gilaSave = 'true';
 
-    // Capture password as the user types (before JS can clear it on submit)
+    // Capture credentials as the user types and persist to storage
+    // This ensures we have the data even if the page navigates away instantly
     passwordField.addEventListener('input', () => {
       lastTypedPassword = passwordField.value;
+      if (lastTypedPassword) {
+        const username = usernameField?.value || lastTypedUsername || findUsernameOnPage() || '';
+        chrome.storage.session.set({
+          pendingCredential: {
+            username,
+            password: lastTypedPassword,
+            url: window.location.href,
+            hostname: window.location.hostname,
+            name: document.title || window.location.hostname,
+            timestamp: Date.now(),
+          }
+        }).catch(() => {});
+      }
     });
     if (usernameField) {
       usernameField.addEventListener('input', () => {
