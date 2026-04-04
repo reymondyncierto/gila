@@ -24,8 +24,17 @@ async function init() {
     return;
   }
 
-  // Lookup matching credentials
-  const result = await sendMessage({ type: 'lookup', url: tab.url });
+  // Ask the content script for any detected username on the page
+  let detectedUsername = '';
+  try {
+    const formInfo = await new Promise((resolve) => {
+      chrome.tabs.sendMessage(tab.id, { type: 'get_form_values' }, resolve);
+    });
+    detectedUsername = formInfo?.username || '';
+  } catch {}
+
+  // Lookup matching credentials, passing detected username for filtering
+  const result = await sendMessage({ type: 'lookup', url: tab.url, username: detectedUsername });
 
   if (result?.error === 'vault_locked') {
     showStatus('Vault is locked — unlock in Gila', 'error');

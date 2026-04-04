@@ -168,30 +168,64 @@ pub fn extract_domain(url: &str) -> Option<String> {
     }
 }
 
-/// Find login credentials whose search_index contains a matching domain.
+/// Find login credentials matching a URL's domain and optionally a username.
+/// If `username` is provided, credentials matching that username are returned first.
+/// If `username` matches exactly one credential, only that one is returned.
 pub fn match_credentials_by_url(pool: &DbPool, url: &str) -> Result<Vec<CredentialMeta>> {
+    match_credentials_by_url_and_user(pool, url, None)
+}
+
+pub fn match_credentials_by_url_and_user(
+    pool: &DbPool,
+    url: &str,
+    username: Option<&str>,
+) -> Result<Vec<CredentialMeta>> {
     let domain = match extract_domain(url) {
         Some(d) => d,
         None => return Ok(vec![]),
     };
 
-    let pattern = format!("%{}%", domain.to_lowercase());
+    let domain_pattern = format!("%{}%", domain.to_lowercase());
     let conn = pool.conn();
     let mut stmt = conn.prepare(
-        "SELECT id, cred_type, name, favorite, created_at, updated_at FROM credentials WHERE cred_type = 'login' AND (LOWER(search_index) LIKE ?1 OR LOWER(name) LIKE ?1) ORDER BY updated_at DESC",
+        "SELECT id, cred_type, name, favorite, created_at, updated_at, search_index FROM credentials WHERE cred_type = 'login' AND (LOWER(search_index) LIKE ?1 OR LOWER(name) LIKE ?1) ORDER BY updated_at DESC",
     )?;
-    let rows = stmt.query_map(params![pattern], |row| {
-        Ok(CredentialMeta {
-            id: row.get(0)?,
-            cred_type: row.get(1)?,
-            name: row.get(2)?,
-            favorite: row.get::<_, i32>(3)? != 0,
-            created_at: row.get(4)?,
-            updated_at: row.get(5)?,
-        })
-    })?;
+    let rows: Vec<(CredentialMeta, String)> = stmt
+        .query_map(params![domain_pattern], |row| {
+            Ok((
+                CredentialMeta {
+                    id: row.get(0)?,
+                    cred_type: row.get(1)?,
+                    name: row.get(2)?,
+                    favorite: row.get::<_, i32>(3)? != 0,
+                    created_at: row.get(4)?,
+                    updated_at: row.get(5)?,
+                },
+                row.get::<_, String>(6)?,
+            ))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
 
-    rows.collect()
+    // If a username is provided, try to narrow down
+    if let Some(user) = username {
+        let user_lower = user.to_lowercase();
+        if !user_lower.is_empty() {
+            let exact_matches: Vec<CredentialMeta> = rows
+                .iter()
+                .filter(|(_, idx)| idx.to_lowercase().contains(&user_lower))
+                .map(|(m, _)| m.clone())
+                .collect();
+
+            // If we found matches for this specific user, return only those
+            if !exact_matches.is_empty() {
+                return Ok(exact_matches);
+            }
+        }
+    }
+
+    // No username filter or no username matches — return all domain matches
+    Ok(rows.into_iter().map(|(m, _)| m).collect())
 }
 
 #[cfg(test)]

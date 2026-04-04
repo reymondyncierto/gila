@@ -195,7 +195,8 @@ fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -
             }
 
             let url = request["url"].as_str().unwrap_or("");
-            match db::match_credentials_by_url(&state.db, url) {
+            let username = request["username"].as_str();
+            match db::match_credentials_by_url_and_user(&state.db, url, username) {
                 Ok(rows) => {
                     let items: Vec<serde_json::Value> = rows
                         .into_iter()

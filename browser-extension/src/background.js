@@ -69,7 +69,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
 
     case 'lookup':
-      bridge.send({ method: 'lookup', url: request.url }).then(sendResponse);
+      bridge.send({
+        method: 'lookup',
+        url: request.url,
+        username: request.username || undefined,
+      }).then(sendResponse);
       return true;
 
     case 'get_credential':

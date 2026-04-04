@@ -88,8 +88,10 @@ function onFormsDetected(forms) {
   attachSaveDetection(forms);
 
   // Query vault for matching credentials and show inline icons
+  // Include detected username so the backend can narrow results
+  const detectedUser = forms[0]?.usernameField?.value || findUsernameOnPage() || '';
   chrome.runtime.sendMessage(
-    { type: 'lookup', url: window.location.href },
+    { type: 'lookup', url: window.location.href, username: detectedUser },
     (response) => {
       const matches = response?.result || [];
       if (matches.length > 0) {
