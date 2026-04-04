@@ -33,6 +33,10 @@ pub fn run() {
             commands::vault::create_credential,
             commands::vault::update_credential,
             commands::vault::delete_credential,
+            commands::vault::list_credentials,
+            commands::vault::get_credential,
+            commands::vault::search_credentials,
+            commands::vault::toggle_favorite,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

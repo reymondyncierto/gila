@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use uuid::Uuid;
 
-use crate::crypto::{encrypt, CipherError};
+use crate::crypto::{decrypt, encrypt, CipherError};
 use crate::db;
 use crate::state::AppState;
 
@@ -99,5 +99,101 @@ pub fn delete_credential(
     id: String,
 ) -> Result<(), VaultError> {
     db::delete_credential(&state.db, &id)?;
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+pub struct CredentialListItem {
+    pub id: String,
+    pub cred_type: String,
+    pub name: String,
+    pub favorite: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CredentialDetail {
+    pub id: String,
+    pub cred_type: String,
+    pub name: String,
+    pub data: String,
+    pub favorite: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[tauri::command]
+pub fn list_credentials(
+    state: State<'_, AppState>,
+    cred_type: Option<String>,
+    favorites_only: Option<bool>,
+) -> Result<Vec<CredentialListItem>, VaultError> {
+    let rows = db::list_credentials(
+        &state.db,
+        cred_type.as_deref(),
+        favorites_only.unwrap_or(false),
+    )?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| CredentialListItem {
+            id: r.id,
+            cred_type: r.cred_type,
+            name: r.name,
+            favorite: r.favorite,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn get_credential(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<CredentialDetail, VaultError> {
+    let key = get_key_bytes(&state)?;
+    let row = db::get_credential(&state.db, &id)?;
+    let decrypted = decrypt(&key, &row.data)?;
+    let data_str = String::from_utf8(decrypted).map_err(|e| VaultError::Encryption(e.to_string()))?;
+
+    Ok(CredentialDetail {
+        id: row.id,
+        cred_type: row.cred_type,
+        name: row.name,
+        data: data_str,
+        favorite: row.favorite,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    })
+}
+
+#[tauri::command]
+pub fn search_credentials(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<Vec<CredentialListItem>, VaultError> {
+    let rows = db::search_credentials(&state.db, &query)?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| CredentialListItem {
+            id: r.id,
+            cred_type: r.cred_type,
+            name: r.name,
+            favorite: r.favorite,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn toggle_favorite(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), VaultError> {
+    db::toggle_favorite(&state.db, &id)?;
     Ok(())
 }
