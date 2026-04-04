@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Sidebar, { type Category } from "./Sidebar";
 import DetailPanel from "./DetailPanel";
@@ -6,11 +6,12 @@ import CredentialList from "../credentials/CredentialList";
 import CredentialDetail from "../credentials/CredentialDetail";
 import CredentialForm from "../forms/CredentialForm";
 import DeleteDialog from "../credentials/DeleteDialog";
+import Toast from "./Toast";
 import { useCredentials } from "../../hooks/useCredentials";
 import { useSearch } from "../../hooks/useSearch";
 import { useAuthGate } from "../../hooks/useAuthGate";
 import AuthPrompt from "../auth/AuthPrompt";
-import type { CredentialDetail as CredentialDetailType, CredentialType } from "../../types/credentials";
+import type { CredentialDetail as CredentialDetailType, CredentialType, CredentialListItem } from "../../types/credentials";
 
 type View = "list" | "create" | "edit";
 
@@ -27,6 +28,30 @@ export default function AppLayout() {
   } | null>(null);
   const { credentials, loading, refresh } = useCredentials(selectedCategory);
   const { showAuthPrompt, gate, onAuthSuccess, onAuthCancel } = useAuthGate();
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const credCountRef = useRef<number>(0);
+
+  // Detect new credentials added via browser extension bridge
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const all = await invoke<CredentialListItem[]>("list_credentials", {
+          credType: null,
+          favoritesOnly: false,
+        });
+        if (credCountRef.current > 0 && all.length > credCountRef.current) {
+          const newest = all[0]; // sorted by updated_at DESC
+          setToastMessage(`Credential saved from browser: ${newest.name}`);
+          refresh();
+        }
+        credCountRef.current = all.length;
+      } catch {
+        // ignore
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [refresh]);
   const { query, results: searchResults, searching, search, clearSearch } = useSearch();
   const displayCredentials = searchResults !== null ? searchResults : credentials;
   const isLoading = searchResults !== null ? searching : loading;
@@ -159,6 +184,10 @@ export default function AppLayout() {
           }}
           onCancel={() => setDeleteTarget(null)}
         />
+      )}
+
+      {toastMessage && (
+        <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
       )}
     </div>
   );
