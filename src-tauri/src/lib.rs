@@ -18,7 +18,10 @@ use tauri::tray::TrayIconBuilder;
 fn show_window(window: &tauri::WebviewWindow) {
     let _ = window.show();
     let _ = window.unminimize();
-    let _ = window.eval("location.reload();");
+    // Force-navigate to the app URL — eval won't work if the page never loaded
+    if let Ok(url) = window.url() {
+        let _ = window.navigate(url);
+    }
     let _ = window.set_focus();
 }
 
