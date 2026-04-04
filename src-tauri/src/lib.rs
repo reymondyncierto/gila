@@ -13,6 +13,16 @@ use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 
+/// Show a hidden window and reload the webview so it doesn't display a
+/// stale "connection refused" page from when it was created while hidden.
+fn show_window(window: &tauri::WebviewWindow) {
+    let _ = window.show();
+    let _ = window.unminimize();
+    // Reload if the page failed to load initially (e.g. dev server wasn't ready)
+    let _ = window.eval("if(!document.querySelector('#root')?.children.length) location.reload();");
+    let _ = window.set_focus();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -78,9 +88,7 @@ pub fn run() {
                     match event.id().as_ref() {
                         "open" => {
                             if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.unminimize();
-                                let _ = window.set_focus();
+                                show_window(&window);
                             }
                         }
                         "lock" => {
@@ -89,11 +97,8 @@ pub fn run() {
                             auth.lock();
                             let mut key = state.key.lock().expect("key mutex poisoned");
                             *key = None;
-                            // Show the window so user sees the lock screen
                             if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.unminimize();
-                                let _ = window.set_focus();
+                                show_window(&window);
                             }
                         }
                         "quit" => {
@@ -106,9 +111,7 @@ pub fn run() {
                     if let tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
+                            show_window(&window);
                         }
                     }
                 })
