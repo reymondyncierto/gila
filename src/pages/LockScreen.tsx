@@ -53,11 +53,15 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
   }
 
   return (
-    <div className="flex items-center justify-center h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950">
-      <div className="w-full max-w-sm p-8 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 text-center">
-        <p className="text-5xl mb-4">🔒</p>
-        <h1 className="text-2xl font-bold text-white">Gila is Locked</h1>
-        <p className="text-sm text-white/40 mt-2 mb-6">Enter your master password to unlock</p>
+    <div className="flex items-center justify-center h-screen bg-gradient-to-br from-sky-50 via-white to-blue-50">
+      <div className="w-full max-w-sm p-8 rounded-2xl bg-white border border-slate-200 shadow-lg text-center">
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-400 to-blue-500 flex items-center justify-center mx-auto mb-4 shadow-md">
+          <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+        <h1 className="text-xl font-bold text-slate-900">Gila is Locked</h1>
+        <p className="text-sm text-slate-500 mt-2 mb-6">Enter your master password to unlock</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="relative">
@@ -65,25 +69,25 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-white/30 transition-colors"
+              className="w-full px-4 py-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 transition-all"
               placeholder="Master password"
               autoFocus
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60 text-sm"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm font-medium transition-colors"
             >
               {showPassword ? "Hide" : "Show"}
             </button>
           </div>
 
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && <p className="text-sm text-red-500">{error}</p>}
 
           <button
             type="submit"
             disabled={!password || loading}
-            className="w-full py-3 rounded-lg bg-white/15 text-white font-medium hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            className="w-full py-3 rounded-lg bg-sky-500 text-white font-semibold hover:bg-sky-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
           >
             {loading ? "Unlocking..." : "Unlock"}
           </button>
@@ -93,7 +97,7 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
               type="button"
               onClick={handleBiometric}
               disabled={loading}
-              className="w-full py-2 rounded-lg bg-white/5 text-white/60 text-sm hover:bg-white/10 disabled:opacity-30 transition-colors"
+              className="w-full py-2.5 rounded-lg bg-slate-50 text-slate-600 text-sm font-medium hover:bg-slate-100 disabled:opacity-50 transition-colors border border-slate-200"
             >
               Unlock with Biometrics
             </button>

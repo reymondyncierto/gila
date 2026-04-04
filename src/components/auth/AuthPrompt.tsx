@@ -53,10 +53,15 @@ export default function AuthPrompt({ onSuccess, onCancel }: AuthPromptProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-sm p-6 rounded-2xl bg-gray-900 border border-white/10">
-        <h3 className="text-lg font-bold text-white">Authentication Required</h3>
-        <p className="text-sm text-white/50 mt-1 mb-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="w-full max-w-sm p-6 rounded-2xl bg-white border border-slate-200 shadow-xl">
+        <div className="w-10 h-10 rounded-xl bg-sky-50 flex items-center justify-center mb-4">
+          <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+        <h3 className="text-lg font-semibold text-slate-900">Authentication Required</h3>
+        <p className="text-sm text-slate-500 mt-1 mb-4">
           Enter your master password to continue
         </p>
 
@@ -65,25 +70,25 @@ export default function AuthPrompt({ onSuccess, onCancel }: AuthPromptProps) {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-white/30 transition-colors"
+            className="w-full px-4 py-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 transition-all"
             placeholder="Master password"
             autoFocus
           />
 
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && <p className="text-sm text-red-500">{error}</p>}
 
           <div className="flex gap-3 justify-end">
             <button
               type="button"
               onClick={onCancel}
-              className="px-4 py-2 text-sm rounded-lg bg-white/5 text-white/60 hover:bg-white/10 transition-colors"
+              className="px-4 py-2 text-sm rounded-lg bg-slate-100 text-slate-600 font-medium hover:bg-slate-200 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!password || loading}
-              className="px-4 py-2 text-sm rounded-lg bg-white/15 text-white font-medium hover:bg-white/20 disabled:opacity-30 transition-colors"
+              className="px-4 py-2 text-sm rounded-lg bg-sky-500 text-white font-medium hover:bg-sky-600 disabled:opacity-50 transition-colors shadow-sm"
             >
               {loading ? "Verifying..." : "Confirm"}
             </button>
@@ -94,7 +99,7 @@ export default function AuthPrompt({ onSuccess, onCancel }: AuthPromptProps) {
               type="button"
               onClick={handleBiometric}
               disabled={loading}
-              className="w-full py-2 rounded-lg bg-white/5 text-white/60 text-xs hover:bg-white/10 disabled:opacity-30 transition-colors"
+              className="w-full py-2.5 rounded-lg bg-slate-50 text-slate-600 text-sm font-medium hover:bg-slate-100 disabled:opacity-50 transition-colors border border-slate-200"
             >
               Use Biometrics
             </button>

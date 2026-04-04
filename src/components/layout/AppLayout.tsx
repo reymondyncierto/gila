@@ -97,34 +97,39 @@ export default function AppLayout() {
   }
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950">
+    <div className="flex h-screen bg-slate-50">
       <Sidebar selected={selectedCategory} onSelect={(cat) => {
         setSelectedCategory(cat);
         setSelectedId(null);
         setView("list");
       }} />
-      <div className="w-72 h-full border-r border-white/10 bg-white/[0.02] flex flex-col">
-        <div className="p-3 space-y-2 border-b border-white/10">
+      <div className="w-72 h-full border-r border-slate-200 bg-white flex flex-col">
+        <div className="p-3 space-y-2 border-b border-slate-100">
           <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
             <input
               type="text"
               value={query}
               onChange={(e) => search(e.target.value)}
-              placeholder="Search credentials..."
-              className="w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-white/25 transition-colors"
+              placeholder="Search..."
+              className="w-full pl-9 pr-8 py-2 text-sm rounded-lg bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 transition-all"
             />
             {query && (
               <button
                 onClick={clearSearch}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60 text-xs"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
               >
-                Clear
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             )}
           </div>
           <button
             onClick={handleCreate}
-            className="w-full py-2 text-sm rounded-lg bg-white/10 text-white/70 hover:bg-white/15 hover:text-white transition-colors"
+            className="w-full py-2 text-sm rounded-lg bg-sky-500 text-white font-medium hover:bg-sky-600 active:bg-sky-700 transition-colors shadow-sm"
           >
             + Add Credential
           </button>
