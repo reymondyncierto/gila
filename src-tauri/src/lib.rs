@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod crypto;
 pub mod db;
+pub mod generator;
 pub mod state;
 
 use state::AppState;
@@ -40,6 +41,7 @@ pub fn run() {
             commands::init::initialize_vault,
             commands::init::verify_master_password,
             commands::init::is_vault_setup,
+            commands::generator::generate_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
