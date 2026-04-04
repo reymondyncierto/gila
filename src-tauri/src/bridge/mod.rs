@@ -242,18 +242,29 @@ fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -
                 rows.iter().collect()
             };
 
+            // Deduplicate: keep only one entry per unique username (most recent)
+            let mut seen_usernames = std::collections::HashSet::new();
             let items: Vec<serde_json::Value> = filtered
                 .into_iter()
-                .map(|r| {
-                    // Extract email from search_index for display
-                    let stored_email = email_re.find(&r.4).map(|m| m.as_str()).unwrap_or("");
-                    serde_json::json!({
+                .filter_map(|r| {
+                    let stored_email = email_re.find(&r.4).map(|m| m.as_str().to_lowercase()).unwrap_or_default();
+                    let dedup_key = if stored_email.is_empty() {
+                        r.0.clone() // no email, use ID as unique key
+                    } else {
+                        stored_email.clone()
+                    };
+                    if seen_usernames.contains(&dedup_key) {
+                        return None; // skip duplicate
+                    }
+                    seen_usernames.insert(dedup_key);
+                    let display_email = email_re.find(&r.4).map(|m| m.as_str()).unwrap_or("");
+                    Some(serde_json::json!({
                         "id": r.0,
                         "name": r.2,
                         "cred_type": r.1,
                         "favorite": r.3,
-                        "username": stored_email,
-                    })
+                        "username": display_email,
+                    }))
                 })
                 .collect();
             serde_json::json!({ "result": items }).to_string()
@@ -309,11 +320,56 @@ fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -
             };
             drop(key_guard);
 
-            let name = request["name"].as_str().unwrap_or("Unknown Site");
             let url = request["url"].as_str().unwrap_or("");
             let username = request["username"].as_str().unwrap_or("");
             let password = request["password"].as_str().unwrap_or("");
 
+            // Use domain as the credential name (e.g., "google.com") instead of page title
+            let domain = db::extract_domain(url).unwrap_or_default();
+            let name = if domain.is_empty() {
+                request["name"].as_str().unwrap_or("Unknown Site")
+            } else {
+                &domain
+            };
+
+            // Check for existing credential with same domain + username to avoid duplicates
+            let username_lower = username.to_lowercase();
+            let existing = db::match_credentials_by_url_and_user(
+                &state.db,
+                url,
+                if username.is_empty() { None } else { Some(username) },
+            );
+
+            // If an exact match exists (same domain + same username), update it instead of creating new
+            if let Ok(ref matches) = existing {
+                if !matches.is_empty() && !username.is_empty() {
+                    // Found existing credential for this domain+user — update it
+                    let existing_id = &matches[0].id;
+
+                    let data = serde_json::json!({
+                        "service_name": name,
+                        "url": url,
+                        "username": username,
+                        "password": password,
+                    });
+                    let data_str = data.to_string();
+                    let search_index = format!("{} {} {}", name, domain, username).to_lowercase();
+
+                    match crypto::encrypt(&key, data_str.as_bytes()) {
+                        Ok(encrypted) => {
+                            match db::update_credential(&state.db, existing_id, name, &search_index, &encrypted) {
+                                Ok(_) => return serde_json::json!({
+                                    "result": { "id": existing_id, "name": name, "updated": true }
+                                }).to_string(),
+                                Err(e) => return serde_json::json!({ "error": e.to_string() }).to_string(),
+                            }
+                        }
+                        Err(e) => return serde_json::json!({ "error": e.to_string() }).to_string(),
+                    }
+                }
+            }
+
+            // No existing credential — create new
             let data = serde_json::json!({
                 "service_name": name,
                 "url": url,
@@ -321,10 +377,7 @@ fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -
                 "password": password,
             });
             let data_str = data.to_string();
-
-            let domain = db::extract_domain(url).unwrap_or_default();
-            let search_index =
-                format!("{} {} {} {}", name, domain, url, username).to_lowercase();
+            let search_index = format!("{} {} {}", name, domain, username).to_lowercase();
 
             match crypto::encrypt(&key, data_str.as_bytes()) {
                 Ok(encrypted) => {

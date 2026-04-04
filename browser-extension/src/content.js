@@ -230,13 +230,18 @@ function attachSaveDetection(forms) {
 
       savePromptShown = true;
 
+      // Pass username so the lookup can check if THIS specific account is already saved
       chrome.runtime.sendMessage(
-        { type: 'lookup', url: window.location.href },
+        { type: 'lookup', url: window.location.href, username },
         (response) => {
           console.log('[Gila] Lookup response:', response);
           const existing = response?.result || [];
-          if (existing.length > 0) {
-            console.log('[Gila] Credentials already exist, skipping save prompt');
+          // Check if this specific username already exists (not just any credential for this domain)
+          const alreadySaved = existing.some(c =>
+            c.username && username && c.username.toLowerCase() === username.toLowerCase()
+          );
+          if (alreadySaved) {
+            console.log('[Gila] This account already saved, skipping save prompt');
             savePromptShown = false;
             return;
           }
