@@ -109,6 +109,7 @@ function showSettings() {
     <p style="font-size: 11px; color: rgba(255,255,255,0.35); text-align: center; margin-bottom: 16px;">
       Make sure the Gila desktop app is running
     </p>
+    <p id="ext-id-display" style="font-size: 10px; color: rgba(255,255,255,0.2); text-align: center; margin-bottom: 12px; font-family: monospace;"></p>
     <details style="margin-top: 4px;">
       <summary style="font-size: 11px; color: rgba(255,255,255,0.3); cursor: pointer; margin-bottom: 8px;">
         Manual connection setup
@@ -127,6 +128,12 @@ function showSettings() {
     </details>
   `;
   credentialsEl.appendChild(settingsDiv);
+
+  // Show extension ID for native host setup
+  const extIdEl = document.getElementById('ext-id-display');
+  if (extIdEl) {
+    extIdEl.textContent = `Extension ID: ${chrome.runtime.id}`;
+  }
 
   // Reconnect button triggers auto-discovery via native messaging
   document.getElementById('cfg-reconnect').addEventListener('click', async () => {
