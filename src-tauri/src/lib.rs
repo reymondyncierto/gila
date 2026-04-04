@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod clipboard;
 pub mod commands;
 pub mod crypto;
@@ -27,6 +28,7 @@ pub fn run() {
             app.manage(AppState {
                 db: pool,
                 key: Mutex::new(None),
+                auth: Mutex::new(auth::AuthState::new()),
             });
 
             Ok(())
@@ -44,6 +46,10 @@ pub fn run() {
             commands::init::is_vault_setup,
             commands::generator::generate_password,
             commands::clipboard::copy_to_clipboard,
+            commands::auth::get_lock_state,
+            commands::auth::lock_vault,
+            commands::auth::unlock_vault,
+            commands::auth::touch_activity,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

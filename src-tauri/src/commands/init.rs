@@ -86,10 +86,10 @@ pub fn initialize_vault(
     Ok(())
 }
 
-#[tauri::command]
-pub fn verify_master_password(
-    state: State<'_, AppState>,
-    master_password: String,
+/// Inner function that can be called without Tauri's State wrapper.
+pub fn verify_master_password_inner(
+    state: &AppState,
+    master_password: &str,
 ) -> Result<(), InitError> {
     let conn = state.db.conn();
 
@@ -107,7 +107,6 @@ pub fn verify_master_password(
         )
         .map_err(|_| InitError::Database("vault not initialized".to_string()))?;
 
-    // Drop the connection guard before locking key
     drop(conn);
 
     let mut salt = [0u8; 16];
@@ -126,6 +125,14 @@ pub fn verify_master_password(
         }
         _ => Err(InitError::InvalidPassword),
     }
+}
+
+#[tauri::command]
+pub fn verify_master_password(
+    state: State<'_, AppState>,
+    master_password: String,
+) -> Result<(), InitError> {
+    verify_master_password_inner(&state, &master_password)
 }
 
 #[tauri::command]
