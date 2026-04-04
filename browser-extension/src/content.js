@@ -63,10 +63,18 @@ function detectLoginForms() {
 
 // ===== Content Script Logic =====
 
+console.log('[Gila] Content script loaded on', window.location.href);
+
 let detectedForms = [];
 
 function onFormsDetected(forms) {
   detectedForms = forms;
+  console.log('[Gila] Detected', forms.length, 'login form(s)',
+    forms.map(f => ({
+      username: f.usernameField?.name || f.usernameField?.id || '(none)',
+      password: f.passwordField?.name || f.passwordField?.id || '(none)',
+    }))
+  );
   chrome.runtime.sendMessage({
     type: 'forms_detected',
     url: window.location.href,
@@ -90,8 +98,11 @@ function onFormsDetected(forms) {
 
 // Initial scan
 const initialForms = detectLoginForms();
+console.log('[Gila] Initial scan found', initialForms.length, 'form(s)');
 if (initialForms.length > 0) {
   onFormsDetected(initialForms);
+} else {
+  console.log('[Gila] No forms found yet, watching for dynamic forms...');
 }
 
 // Watch for dynamically added forms via MutationObserver
@@ -188,6 +199,7 @@ function attachSaveDetection(forms) {
       if (savePromptShown) return;
       const username = usernameField?.value || '';
       const password = passwordField?.value || '';
+      console.log('[Gila] Save handler triggered — username:', username ? 'filled' : 'empty', 'password:', password ? 'filled' : 'empty');
       if (!password) return;
 
       savePromptShown = true;
@@ -196,8 +208,14 @@ function attachSaveDetection(forms) {
       chrome.runtime.sendMessage(
         { type: 'lookup', url: window.location.href },
         (response) => {
+          console.log('[Gila] Lookup response:', response);
           const existing = response?.result || [];
-          if (existing.length > 0) { savePromptShown = false; return; }
+          if (existing.length > 0) {
+            console.log('[Gila] Credentials already exist, skipping save prompt');
+            savePromptShown = false;
+            return;
+          }
+          console.log('[Gila] Showing save banner');
           showSaveBanner(username, password);
         }
       );
