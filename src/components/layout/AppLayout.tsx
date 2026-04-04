@@ -8,6 +8,8 @@ import CredentialForm from "../forms/CredentialForm";
 import DeleteDialog from "../credentials/DeleteDialog";
 import { useCredentials } from "../../hooks/useCredentials";
 import { useSearch } from "../../hooks/useSearch";
+import { useAuthGate } from "../../hooks/useAuthGate";
+import AuthPrompt from "../auth/AuthPrompt";
 import type { CredentialDetail as CredentialDetailType, CredentialType } from "../../types/credentials";
 
 type View = "list" | "create" | "edit";
@@ -24,6 +26,7 @@ export default function AppLayout() {
     data: Record<string, string>;
   } | null>(null);
   const { credentials, loading, refresh } = useCredentials(selectedCategory);
+  const { showAuthPrompt, gate, onAuthSuccess, onAuthCancel } = useAuthGate();
   const { query, results: searchResults, searching, search, clearSearch } = useSearch();
   const displayCredentials = searchResults !== null ? searchResults : credentials;
   const isLoading = searchResults !== null ? searching : loading;
@@ -41,26 +44,30 @@ export default function AppLayout() {
     refresh();
   }
 
-  async function handleEdit() {
+  function handleEdit() {
     if (!selectedId) return;
-    try {
-      const detail = await invoke<CredentialDetailType>("get_credential", { id: selectedId });
-      setEditData({
-        id: detail.id,
-        name: detail.name,
-        cred_type: detail.cred_type,
-        data: JSON.parse(detail.data),
-      });
-      setView("edit");
-    } catch (err) {
-      console.error("Failed to load credential for edit:", err);
-    }
+    gate(async () => {
+      try {
+        const detail = await invoke<CredentialDetailType>("get_credential", { id: selectedId });
+        setEditData({
+          id: detail.id,
+          name: detail.name,
+          cred_type: detail.cred_type,
+          data: JSON.parse(detail.data),
+        });
+        setView("edit");
+      } catch (err) {
+        console.error("Failed to load credential for edit:", err);
+      }
+    });
   }
 
   function handleDeleteRequest() {
     const cred = credentials.find((c) => c.id === selectedId);
     if (cred) {
-      setDeleteTarget({ id: cred.id, name: cred.name });
+      gate(() => {
+        setDeleteTarget({ id: cred.id, name: cred.name });
+      });
     }
   }
 
@@ -136,6 +143,10 @@ export default function AppLayout() {
           />
         )}
       </DetailPanel>
+
+      {showAuthPrompt && (
+        <AuthPrompt onSuccess={onAuthSuccess} onCancel={onAuthCancel} />
+      )}
 
       {deleteTarget && (
         <DeleteDialog
