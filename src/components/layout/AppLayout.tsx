@@ -2,12 +2,13 @@ import { useState } from "react";
 import Sidebar, { type Category } from "./Sidebar";
 import DetailPanel from "./DetailPanel";
 import CredentialList from "../credentials/CredentialList";
+import CredentialDetail from "../credentials/CredentialDetail";
 import { useCredentials } from "../../hooks/useCredentials";
 
 export default function AppLayout() {
   const [selectedCategory, setSelectedCategory] = useState<Category>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const { credentials, loading } = useCredentials(selectedCategory);
+  const { credentials, loading, refresh } = useCredentials(selectedCategory);
 
   return (
     <div className="flex h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950">
@@ -23,7 +24,18 @@ export default function AppLayout() {
           onSelect={setSelectedId}
         />
       </div>
-      <DetailPanel />
+      <DetailPanel>
+        {selectedId && (
+          <CredentialDetail
+            credentialId={selectedId}
+            onEdit={() => {}}
+            onDelete={() => {
+              setSelectedId(null);
+              refresh();
+            }}
+          />
+        )}
+      </DetailPanel>
     </div>
   );
 }
