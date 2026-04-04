@@ -14,6 +14,12 @@ impl DbPool {
         })
     }
 
+    pub fn new_from_conn(conn: Connection) -> Self {
+        Self {
+            conn: Mutex::new(conn),
+        }
+    }
+
     pub fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.conn.lock().expect("database mutex poisoned")
     }
@@ -53,13 +59,9 @@ pub fn initialize_db(pool: &DbPool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-
     fn in_memory_pool() -> DbPool {
         let conn = Connection::open_in_memory().unwrap();
-        DbPool {
-            conn: Mutex::new(conn),
-        }
+        DbPool::new_from_conn(conn)
     }
 
     #[test]
