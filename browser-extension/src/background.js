@@ -96,5 +96,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
       sendResponse({ ok: true });
       return true;
+
+    case 'pending_save':
+      // Credential captured before page navigation — save it directly if connected
+      if (bridge.isConnected && request.password) {
+        bridge.send({
+          method: 'save_credential',
+          name: request.name,
+          url: request.url,
+          username: request.username,
+          password: request.password,
+        }).then((result) => {
+          if (result?.result) {
+            console.log('[Gila] Auto-saved credential from page navigation:', request.name);
+          }
+        });
+      }
+      sendResponse({ ok: true });
+      return true;
   }
 });

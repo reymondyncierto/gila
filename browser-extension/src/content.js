@@ -175,6 +175,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 const savedFormRefs = new WeakSet();
 
+let savePromptShown = false;
+
 function attachSaveDetection(forms) {
   for (const detected of forms) {
     const { form, usernameField, passwordField } = detected;
@@ -183,33 +185,60 @@ function attachSaveDetection(forms) {
     if (form) savedFormRefs.add(form);
 
     const handler = () => {
+      if (savePromptShown) return;
       const username = usernameField?.value || '';
       const password = passwordField?.value || '';
       if (!password) return;
+
+      savePromptShown = true;
 
       // Check if credentials already exist for this site
       chrome.runtime.sendMessage(
         { type: 'lookup', url: window.location.href },
         (response) => {
           const existing = response?.result || [];
-          if (existing.length > 0) return;
+          if (existing.length > 0) { savePromptShown = false; return; }
           showSaveBanner(username, password);
         }
       );
     };
 
+    // 1. Native form submit
     if (form) {
       form.addEventListener('submit', handler);
     }
 
-    // Detect submit button clicks (for JS-driven forms)
-    const container = form || document;
-    const submitBtns = container.querySelectorAll(
-      'button[type="submit"], input[type="submit"]'
+    // 2. Click on any button inside or near the form (catches modern JS login buttons)
+    const container = form || passwordField.closest('div, section, main') || document.body;
+    const allButtons = container.querySelectorAll(
+      'button, input[type="submit"], a[role="button"], [role="button"]'
     );
-    for (const btn of submitBtns) {
-      btn.addEventListener('click', () => setTimeout(handler, 100));
+    for (const btn of allButtons) {
+      btn.addEventListener('click', () => setTimeout(handler, 200), { once: false });
     }
+
+    // 3. Enter key in the password field (common login trigger)
+    passwordField.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        setTimeout(handler, 200);
+      }
+    });
+
+    // 4. Catch page navigation with filled credentials (SPA or full page redirect)
+    window.addEventListener('beforeunload', () => {
+      const username = usernameField?.value || '';
+      const password = passwordField?.value || '';
+      if (password && !savePromptShown) {
+        // Can't show UI here, but we can send to background to remember
+        chrome.runtime.sendMessage({
+          type: 'pending_save',
+          name: document.title || window.location.hostname,
+          url: window.location.href,
+          username,
+          password,
+        }).catch(() => {});
+      }
+    });
   }
 }
 
