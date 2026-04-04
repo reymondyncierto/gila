@@ -332,19 +332,28 @@ fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -
                 &domain
             };
 
-            // Check for existing credential with same domain + username to avoid duplicates
+            // Check for existing credential with EXACT same domain + username to avoid duplicates
+            // Different usernames on the same domain should create separate entries
             let username_lower = username.to_lowercase();
-            let existing = db::match_credentials_by_url_and_user(
-                &state.db,
-                url,
-                if username.is_empty() { None } else { Some(username) },
-            );
+            let existing = if !username.is_empty() {
+                // Get all credentials for this domain
+                db::match_credentials_by_url(&state.db, url)
+            } else {
+                Ok(vec![])
+            };
 
-            // If an exact match exists (same domain + same username), update it instead of creating new
-            if let Ok(ref matches) = existing {
-                if !matches.is_empty() && !username.is_empty() {
-                    // Found existing credential for this domain+user — update it
-                    let existing_id = &matches[0].id;
+            // Find an entry with this EXACT username in its search_index
+            let exact_match = if let Ok(ref all_matches) = existing {
+                all_matches.iter().find(|m| {
+                    // Only match if the search_index contains this exact email/username
+                    m.search_index.to_lowercase().contains(&username_lower) && !username_lower.is_empty()
+                })
+            } else {
+                None
+            };
+
+            if let Some(matched) = exact_match {
+                    let existing_id = &matched.id;
 
                     let data = serde_json::json!({
                         "service_name": name,
@@ -366,7 +375,6 @@ fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -
                         }
                         Err(e) => return serde_json::json!({ "error": e.to_string() }).to_string(),
                     }
-                }
             }
 
             // No existing credential — create new
