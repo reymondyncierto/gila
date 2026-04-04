@@ -4,6 +4,7 @@ A high-performance, cross-platform password manager built with a "security-first
 
 **Stack:** Tauri v2 + Rust + React 19 + TypeScript + Tailwind CSS
 **Platforms:** Windows, Linux, Android, iOS
+**Browser Extension:** Chrome / Edge / Brave (Manifest V3)
 
 ---
 
@@ -12,6 +13,7 @@ A high-performance, cross-platform password manager built with a "security-first
 - **Zero-Knowledge Encryption** — All encryption happens locally. Keys never leave the device.
 - **Auth-Gated Access** — Every reveal, copy, edit, or delete requires re-authentication, with a 30-second grace period for batch operations.
 - **Five Credential Types** — Logins, App Passwords, API Keys, Wi-Fi, and Secure Notes.
+- **Browser Extension** — Auto-detects login forms, auto-fills saved credentials, and offers to save new ones.
 - **Password Generator** — Configurable character-based and passphrase-based generation.
 - **Fuzzy Search** — Instant, debounced search across all credentials.
 - **Auto-Lock** — Vault locks after 5 minutes of inactivity or on system sleep.
@@ -25,22 +27,30 @@ A high-performance, cross-platform password manager built with a "security-first
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                    React Frontend                     │
-│  Sidebar ─ Credential List ─ Detail Panel ─ Forms    │
-│  Hooks: useCredentials, useSearch, useAuthGate, ...  │
-├──────────────────── Tauri invoke ─────────────────────┤
-│                    Rust Backend                       │
-│  ┌─────────┐  ┌──────────┐  ┌───────────┐           │
-│  │ Commands │  │  Crypto  │  │ Database  │           │
-│  │ (Tauri)  │──│ AES-GCM  │──│  SQLite   │           │
-│  │          │  │ Argon2id │  │ (rusqlite)│           │
-│  └─────────┘  └──────────┘  └───────────┘           │
-│  ┌─────────┐  ┌──────────┐  ┌───────────┐           │
-│  │  Auth   │  │Clipboard │  │ Generator │           │
-│  │  State  │  │ AutoClear│  │ Pwd/Phrase│           │
-│  └─────────┘  └──────────┘  └───────────┘           │
-└──────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                      Browser Extension                          │
+│  Content Script ─ Background Worker ─ Popup UI                  │
+│  Form detection, auto-fill, save prompt, inline suggestions     │
+├──── fetch http://127.0.0.1:21525 ──── ws://127.0.0.1:{port} ───┤
+│                                                                 │
+│                       Gila Desktop App                          │
+│                                                                 │
+│  ┌──────────────────── React Frontend ────────────────────────┐ │
+│  │  Sidebar ─ Credential List ─ Detail Panel ─ Forms ─ Toast  │ │
+│  │  Hooks: useCredentials, useSearch, useAuthGate, useTheme   │ │
+│  ├──────────────────── Tauri invoke ──────────────────────────┤ │
+│  │                     Rust Backend                           │ │
+│  │  ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌───────────┐  │ │
+│  │  │Commands │  │  Crypto  │  │ Database │  │  Bridge   │  │ │
+│  │  │ (Tauri) │  │ AES-GCM  │  │  SQLite  │  │ WS Server │  │ │
+│  │  │         │  │ Argon2id │  │(rusqlite)│  │ HTTP Disc │  │ │
+│  │  └─────────┘  └──────────┘  └──────────┘  └───────────┘  │ │
+│  │  ┌─────────┐  ┌──────────┐  ┌──────────┐                  │ │
+│  │  │  Auth   │  │Clipboard │  │Generator │                  │ │
+│  │  │  State  │  │ AutoClear│  │Pwd/Phrase│                  │ │
+│  │  └─────────┘  └──────────┘  └──────────┘                  │ │
+│  └────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Security Model
@@ -53,22 +63,139 @@ A high-performance, cross-platform password manager built with a "security-first
 | **Storage** | Encrypted SQLite — credential data stored as ciphertext blobs |
 | **Auth Gating** | Per-action re-authentication with 30-second grace period |
 | **Biometric** | OS keychain (via `keyring` crate) stores session credential |
+| **Bridge Security** | WebSocket auth token required; discovery bound to 127.0.0.1 only |
 
 ### Authentication Flow
 
 ```
 Onboarding:
-  Master Password → generate salt → Argon2id → encrypt verification token → store in DB
+  Master Password -> generate salt -> Argon2id -> encrypt verification token -> store in DB
 
 Unlock:
-  Master Password → derive key from stored salt → decrypt verification token → unlock
+  Master Password -> derive key from stored salt -> decrypt verification token -> unlock
 
 Per-Action Auth:
-  Sensitive action → check 30s grace period → if expired, prompt password/biometric
+  Sensitive action -> check 30s grace period -> if expired, prompt password/biometric
 
 Auto-Lock:
-  5 min inactivity or system sleep → lock vault → wipe key from memory
+  5 min inactivity or system sleep -> lock vault -> wipe key from memory
 ```
+
+---
+
+## Browser Extension
+
+The Gila browser extension integrates directly with the desktop app to auto-detect login forms, auto-fill saved credentials, and offer to save new ones — all without any manual configuration.
+
+### How It Works
+
+```
+                         Browser
+┌──────────────────────────────────────────┐
+│                                          │
+│  Content Script (every page)             │
+│  ├─ Detects login forms (heuristics      │
+│  │  + MutationObserver for SPAs)         │
+│  ├─ Shows inline "G" icon in fields      │
+│  │  when matching credentials exist      │
+│  ├─ Auto-fills username + password       │
+│  │  (React/Angular/Vue compatible)       │
+│  └─ Detects form submissions and         │
+│     shows "Save to Gila?" banner         │
+│                                          │
+│  Background Service Worker               │
+│  ├─ Auto-discovers Gila via HTTP         │     HTTP (fixed port 21525)
+│  │  GET http://127.0.0.1:21525/config ───┼──────────────────────┐
+│  │  Returns { port, token }              │                      │
+│  ├─ Connects via WebSocket               │     WebSocket        │
+│  │  ws://127.0.0.1:{port} ──────────────┼───────────────┐      │
+│  └─ Relays messages between              │               │      │
+│     content scripts and Gila             │               │      │
+│                                          │               │      │
+│  Popup UI                                │               │      │
+│  ├─ Shows matching credentials           │               │      │
+│  │  for the current tab's URL            │               │      │
+│  ├─ Click to auto-fill                   │               │      │
+│  └─ Reconnect button + manual config     │               │      │
+│                                          │               │      │
+└──────────────────────────────────────────┘               │      │
+                                                           │      │
+                       Gila Desktop App                    │      │
+┌──────────────────────────────────────────────────────────┼──────┼─┐
+│                                                          │      │ │
+│  Bridge Module (Rust)                                    │      │ │
+│  ├─ HTTP Discovery Server (port 21525) ◄─────────────────┼──────┘ │
+│  │  Returns WS port + auth token                         │        │
+│  ├─ WebSocket Server (random port) ◄─────────────────────┘        │
+│  │  JSON-RPC protocol:                                            │
+│  │  ├─ auth      — authenticate with token                        │
+│  │  ├─ lookup    — find credentials by URL (domain matching)      │
+│  │  ├─ get_credential — decrypt and return full credential        │
+│  │  ├─ save_credential — encrypt and store new credential         │
+│  │  └─ status    — check vault lock state                         │
+│  └─ All operations require vault to be unlocked                   │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+### Zero-Config Auto-Connect
+
+The extension connects to the desktop app automatically — no manual setup required:
+
+1. **Gila desktop app starts** and launches two local servers:
+   - **HTTP discovery** on fixed port `21525` (returns WS port + auth token)
+   - **WebSocket bridge** on a random port (for credential operations)
+
+2. **Extension background worker** fetches `http://127.0.0.1:21525/config` on startup to discover the WebSocket port and auth token.
+
+3. **If Gila restarts** (new port), the extension re-discovers automatically every 15 seconds.
+
+4. **Fallback**: if auto-discovery fails, the popup has a manual config section where you can enter the port and token from `~/.gila/bridge.port` and `~/.gila/bridge.token`.
+
+### Form Detection
+
+The content script detects login forms using multiple heuristics:
+
+| Signal | Examples |
+|---|---|
+| **Input type** | `<input type="password">`, `<input type="email">` |
+| **Autocomplete attribute** | `autocomplete="username"`, `autocomplete="current-password"` |
+| **Name/ID heuristics** | `name="user"`, `id="email"`, `name="passwd"` |
+| **Aria labels** | `aria-label="Email address"` |
+| **Dynamic forms** | `MutationObserver` watches for forms injected by SPAs |
+
+The detector finds password fields first, then walks backwards in the DOM to find the associated username/email field.
+
+### Auto-Fill
+
+When a user selects a credential (from the popup or the inline dropdown), the extension fills both the username and password fields:
+
+- Uses the **native HTMLInputElement value setter** to bypass React's controlled input interception
+- Dispatches `InputEvent` with `inputType: 'insertText'` for React compatibility
+- Fires `input`, `change`, and `blur` events so Angular/Vue also pick up the changes
+- Briefly highlights filled fields with a green outline for visual confirmation
+
+### Save Detection
+
+When a user submits a login form with credentials not already in the vault:
+
+1. The content script intercepts the `submit` event
+2. Captures the username and password values
+3. Checks the vault for existing credentials for this URL
+4. If new, shows a **"Save to Gila?"** banner at the top of the page
+5. Clicking "Save" sends the credential to the desktop app for encryption and storage
+6. The desktop app shows a toast notification confirming the save
+7. The banner auto-dismisses after 15 seconds
+
+### Inline Suggestions
+
+When a login form is detected and matching credentials exist in the vault:
+
+- A small **"G" icon** appears inside the username and password fields
+- Clicking the icon opens a **Shadow DOM dropdown** listing matching credentials
+- Selecting a credential fills both fields instantly
+- The dropdown uses Shadow DOM to prevent CSS conflicts with the host page
+- Dismisses on outside click or Escape key
 
 ---
 
@@ -94,7 +221,8 @@ gila/
 │       ├── layout/
 │       │   ├── AppLayout.tsx      # Main 3-panel layout with state management
 │       │   ├── Sidebar.tsx        # Category navigation + theme toggle
-│       │   └── DetailPanel.tsx    # Right panel container
+│       │   ├── DetailPanel.tsx    # Right panel container
+│       │   └── Toast.tsx          # Toast notification for browser-saved creds
 │       ├── credentials/
 │       │   ├── CredentialList.tsx  # Scrollable credential list with icons
 │       │   ├── CredentialDetail.tsx# Field display with mask/reveal/copy
@@ -120,11 +248,13 @@ gila/
 │   │   │   └── cipher.rs          # AES-256-GCM encrypt/decrypt
 │   │   ├── db/
 │   │   │   ├── schema.rs          # SQLite schema + migrations
-│   │   │   └── crud.rs            # CRUD operations for credentials
+│   │   │   └── crud.rs            # CRUD + URL-based credential matching
 │   │   ├── auth/
 │   │   │   └── mod.rs             # Lock state, inactivity timer, grace period
+│   │   ├── bridge/
+│   │   │   └── mod.rs             # WebSocket server + HTTP discovery endpoint
 │   │   ├── commands/
-│   │   │   ├── vault.rs           # Credential CRUD commands
+│   │   │   ├── vault.rs           # Credential CRUD + URL lookup commands
 │   │   │   ├── init.rs            # Vault init + password verification
 │   │   │   ├── auth.rs            # Lock/unlock, request_auth, confirm_auth
 │   │   │   ├── biometric.rs       # Keychain-based biometric enrollment/unlock
@@ -136,6 +266,27 @@ gila/
 │   │       └── mod.rs             # Clipboard management with timer invalidation
 │   └── tests/
 │       └── crypto_integration.rs   # End-to-end crypto pipeline tests
+│
+├── browser-extension/              # Chrome browser extension (Manifest V3)
+│   ├── manifest.json               # Extension manifest
+│   ├── popup.html                  # Popup UI shell
+│   ├── popup.css                   # Popup styling (dark glassmorphism)
+│   ├── icons/                      # Extension icons (16/48/128 PNG)
+│   ├── test-page.html              # Test login page for development
+│   ├── native-host/                # Native messaging host (optional fallback)
+│   │   ├── gila_bridge_host.py     # Python host script
+│   │   └── com.rpyncierto.gila.json # Host manifest
+│   ├── install-native-host.sh      # Native host installer (optional)
+│   └── src/
+│       ├── background.js           # Service worker — auto-discovery + message routing
+│       ├── bridge.js               # WebSocket client with reconnection
+│       ├── content.js              # Form detection + auto-fill + save prompt + inline icons
+│       ├── content.css             # Content script styles
+│       ├── popup.js                # Popup logic — credential listing + fill trigger
+│       ├── autofill.js             # Framework-compatible input value setter
+│       ├── detector.js             # Form detection heuristics (reference module)
+│       ├── save-prompt.js          # Save banner UI (reference module)
+│       └── inline-suggest.js       # Inline icon + Shadow DOM dropdown (reference module)
 │
 ├── PRD.md                          # Product Requirements Document
 ├── CLAUDE.md                       # Claude Code project guidance
@@ -152,6 +303,7 @@ gila/
   ```bash
   sudo apt install libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev build-essential pkg-config
   ```
+- **Chrome/Edge/Brave** (for browser extension)
 
 ---
 
@@ -205,15 +357,78 @@ npm run build
 
 ---
 
-## Credential Types
+## Browser Extension Setup
 
-| Type | Fields | Example |
-|---|---|---|
-| **Login** | Service Name, URL, Username/Email, Password | Gmail, GitHub, Spotify |
-| **App Password** | App Name, Generated Password, Linked Account | Gmail App Password |
-| **API Key** | Service, Key, Secret (optional), Environment | Stripe, AWS, OpenAI |
-| **Wi-Fi** | Network Name (SSID), Password, Security Type | Home Wi-Fi, Office |
-| **Secure Note** | Title, Encrypted Text Body | Recovery codes, license keys |
+### Loading the Extension
+
+1. Open `chrome://extensions` in Chrome, Edge, or Brave
+2. Enable **Developer mode** (top-right toggle)
+3. Click **Load unpacked**
+4. Select the `browser-extension/` folder
+5. The Gila extension icon appears in the toolbar
+
+### Connecting to the Desktop App
+
+The extension auto-connects when both the extension and the Gila desktop app are running:
+
+1. Start the Gila desktop app: `npm run tauri dev`
+2. Create your master password (first run) and unlock the vault
+3. The extension background worker auto-discovers the bridge via `http://127.0.0.1:21525/config`
+4. Click the Gila extension icon — it should show **"Connected to Gila"**
+
+If it shows "Not connected", click **Reconnect to Gila** or use the manual config section in the popup (port from `~/.gila/bridge.port`, token from `~/.gila/bridge.token`).
+
+### Testing with the Test Page
+
+A test login page is included for development:
+
+1. Open `browser-extension/test-page.html` in the browser
+2. **Test save detection:** Type an email and password, click "Sign In" — a "Save to Gila?" banner appears
+3. **Test auto-fill:** After saving, refresh the page — the "G" icon appears in the fields, click it to auto-fill
+4. **Test popup:** Click the Gila extension icon — matching credentials appear, click to fill
+
+---
+
+## Bridge Protocol
+
+The desktop app exposes a local WebSocket server for the browser extension. Communication uses a JSON-RPC-style protocol.
+
+### Discovery
+
+```
+GET http://127.0.0.1:21525/config
+
+Response:
+{ "port": 46867, "token": "abc123..." }
+```
+
+### WebSocket Messages
+
+All messages are JSON. The first message must be `auth`:
+
+```json
+// Authenticate
+-> { "method": "auth", "token": "abc123..." }
+<- { "result": "authenticated" }
+
+// Lookup credentials by URL
+-> { "method": "lookup", "url": "https://github.com/login" }
+<- { "result": [{ "id": "...", "name": "GitHub", "cred_type": "login" }] }
+
+// Get decrypted credential
+-> { "method": "get_credential", "id": "uuid-here" }
+<- { "result": { "id": "...", "name": "GitHub", "data": { "username": "...", "password": "..." } } }
+
+// Save new credential from browser
+-> { "method": "save_credential", "name": "GitHub", "url": "https://github.com", "username": "user", "password": "pass" }
+<- { "result": { "id": "new-uuid", "name": "GitHub" } }
+
+// Check vault status
+-> { "method": "status" }
+<- { "result": { "locked": false } }
+```
+
+All credential operations return `{"error": "vault_locked"}` if the vault is locked.
 
 ---
 
@@ -260,6 +475,7 @@ All frontend-backend communication happens through Tauri `invoke` commands:
 | `list_credentials` | List credentials (metadata only, no secrets) |
 | `get_credential` | Decrypt and return full credential data |
 | `search_credentials` | Fuzzy search by name and metadata |
+| `match_credentials_by_url` | Find login credentials matching a URL's domain |
 | `toggle_favorite` | Toggle favorite status |
 
 ### Utilities
@@ -268,6 +484,18 @@ All frontend-backend communication happens through Tauri `invoke` commands:
 |---|---|
 | `generate_password` | Generate password (character or passphrase mode) |
 | `copy_to_clipboard` | Copy to clipboard with 45s auto-clear |
+
+---
+
+## Credential Types
+
+| Type | Fields | Example |
+|---|---|---|
+| **Login** | Service Name, URL, Username/Email, Password | Gmail, GitHub, Spotify |
+| **App Password** | App Name, Generated Password, Linked Account | Gmail App Password |
+| **API Key** | Service, Key, Secret (optional), Environment | Stripe, AWS, OpenAI |
+| **Wi-Fi** | Network Name (SSID), Password, Security Type | Home Wi-Fi, Office |
+| **Secure Note** | Title, Encrypted Text Body | Recovery codes, license keys |
 
 ---
 
@@ -310,9 +538,11 @@ The `data` column stores `nonce(12 bytes) || ciphertext || tag(16 bytes)` — th
 | `rusqlite` | SQLite database (bundled) |
 | `arboard` | System clipboard access |
 | `keyring` | OS keychain for biometric enrollment |
+| `tokio` + `tokio-tungstenite` | Async runtime + WebSocket server for bridge |
 | `uuid` | Unique credential IDs |
 | `rand` | Cryptographic random number generation |
 | `serde` / `serde_json` | Serialization |
+| `hex` / `dirs` | Token encoding / home directory resolution |
 
 ### Frontend
 
@@ -334,6 +564,7 @@ The `data` column stores `nonce(12 bytes) || ciphertext || tag(16 bytes)` — th
 - **Auto-lock:** 5 minutes of inactivity or system sleep
 - **Clipboard clear:** 45 seconds after copy
 - **Auth grace period:** 30 seconds between re-prompts
+- **Bridge security:** WebSocket bound to 127.0.0.1 only, auth token required
 
 ---
 
@@ -344,7 +575,8 @@ The `data` column stores `nonce(12 bytes) || ciphertext || tag(16 bytes)` — th
 | **Phase 1 — Core Crypto** | Done | Argon2id + AES-GCM pipeline with integration tests |
 | **Phase 2 — Desktop Shell** | Done | Full CRUD UI, search, password generator, themes |
 | **Phase 3 — Biometric Gate** | Done | Lock screen, per-action auth, OS keychain integration |
-| **Phase 4 — Mobile Port** | Planned | Android/iOS via Tauri v2 mobile workflows |
+| **Phase 4 — Browser Extension** | Done | Form detection, auto-fill, save detection, inline suggestions |
+| **Phase 5 — Mobile Port** | Planned | Android/iOS via Tauri v2 mobile workflows |
 
 ---
 
