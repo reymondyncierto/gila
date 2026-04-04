@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gila Extension Test — Login Page</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container { width: 400px; }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 32px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    }
+    h1 { font-size: 24px; margin-bottom: 4px; }
+    .subtitle { color: #888; font-size: 14px; margin-bottom: 24px; }
+    label { display: block; font-size: 13px; font-weight: 500; color: #333; margin-bottom: 6px; }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      margin-bottom: 16px;
+      outline: none;
+      transition: border 0.2s;
+    }
+    input:focus { border-color: #4ade80; }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #111;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    button:hover { background: #333; }
+    .result {
+      margin-top: 16px;
+      padding: 12px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #166534;
+      display: none;
+    }
+    .test-info {
+      margin-top: 24px;
+      padding: 16px;
+      background: #fafafa;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #666;
+      line-height: 1.6;
+    }
+    .test-info h3 { color: #333; font-size: 13px; margin-bottom: 8px; }
+    .test-info code { background: #eee; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Test Login</h1>
+      <p class="subtitle">Gila Browser Extension Test Page</p>
+
+      <form id="login-form" autocomplete="on">
+        <label for="email">Email</label>
+        <input
+          type="email"
+          id="email"
+          name="email"
+          autocomplete="username"
+          placeholder="user@example.com"
+        >
+
+        <label for="password">Password</label>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          autocomplete="current-password"
+          placeholder="Enter password"
+        >
+
+        <button type="submit">Sign In</button>
+      </form>
+
+      <div class="result" id="result"></div>
+    </div>
+
+    <div class="test-info">
+      <h3>How to test the Gila extension:</h3>
+      <p><strong>1. Load the extension:</strong><br>
+        Open <code>chrome://extensions</code> → Enable "Developer mode" → Click "Load unpacked" → Select the <code>browser-extension/</code> folder.
+      </p>
+      <br>
+      <p><strong>2. Start Gila desktop app:</strong><br>
+        Run <code>npm run tauri dev</code> from the project root. Create a master password if first run. Note the port from <code>~/.gila/bridge.port</code>.
+      </p>
+      <br>
+      <p><strong>3. Configure the extension:</strong><br>
+        Click the Gila extension icon → Enter the port and token (from <code>~/.gila/bridge.port</code> and <code>~/.gila/bridge.token</code>) → Click "Connect".
+      </p>
+      <br>
+      <p><strong>4. Test form detection:</strong><br>
+        Open this page → The extension should detect the email and password fields. You'll see a small green "G" icon in the fields if you have saved credentials for this URL.
+      </p>
+      <br>
+      <p><strong>5. Test credential save:</strong><br>
+        Type an email and password below → Click "Sign In" → A banner should appear at the top: "Save to Gila?" → Click "Save" → Check the Gila desktop app for a toast notification.
+      </p>
+      <br>
+      <p><strong>6. Test auto-fill:</strong><br>
+        Refresh the page → The "G" icon should appear in the fields (since you saved a credential for this URL) → Click it → Select the credential → Fields auto-fill.
+      </p>
+      <br>
+      <p><strong>7. Test via popup:</strong><br>
+        Click the Gila extension icon → It should show the saved credential → Click it → Fields auto-fill.
+      </p>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('login-form');
+    const result = document.getElementById('result');
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      result.style.display = 'block';
+      result.innerHTML = `
+        <strong>Form submitted!</strong><br>
+        Email: <code>${email}</code><br>
+        Password: <code>${'•'.repeat(password.length)}</code> (${password.length} chars)<br><br>
+        <em>If the Gila extension is active, you should see a "Save to Gila?" banner at the top of the page.</em>
+      `;
+    });
+  </script>
+</body>
+</html>
