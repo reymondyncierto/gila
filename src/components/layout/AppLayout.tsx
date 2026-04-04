@@ -7,6 +7,7 @@ import CredentialDetail from "../credentials/CredentialDetail";
 import CredentialForm from "../forms/CredentialForm";
 import DeleteDialog from "../credentials/DeleteDialog";
 import { useCredentials } from "../../hooks/useCredentials";
+import { useSearch } from "../../hooks/useSearch";
 import type { CredentialDetail as CredentialDetailType, CredentialType } from "../../types/credentials";
 
 type View = "list" | "create" | "edit";
@@ -23,6 +24,9 @@ export default function AppLayout() {
     data: Record<string, string>;
   } | null>(null);
   const { credentials, loading, refresh } = useCredentials(selectedCategory);
+  const { query, results: searchResults, searching, search, clearSearch } = useSearch();
+  const displayCredentials = searchResults !== null ? searchResults : credentials;
+  const isLoading = searchResults !== null ? searching : loading;
 
   function handleCreate() {
     setView("create");
@@ -68,7 +72,24 @@ export default function AppLayout() {
         setView("list");
       }} />
       <div className="w-72 h-full border-r border-white/10 bg-white/[0.02] flex flex-col">
-        <div className="p-3 border-b border-white/10">
+        <div className="p-3 space-y-2 border-b border-white/10">
+          <div className="relative">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => search(e.target.value)}
+              placeholder="Search credentials..."
+              className="w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-white/25 transition-colors"
+            />
+            {query && (
+              <button
+                onClick={clearSearch}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60 text-xs"
+              >
+                Clear
+              </button>
+            )}
+          </div>
           <button
             onClick={handleCreate}
             className="w-full py-2 text-sm rounded-lg bg-white/10 text-white/70 hover:bg-white/15 hover:text-white transition-colors"
@@ -78,8 +99,8 @@ export default function AppLayout() {
         </div>
         <div className="flex-1 overflow-y-auto">
           <CredentialList
-            credentials={credentials}
-            loading={loading}
+            credentials={displayCredentials}
+            loading={isLoading}
             selectedId={selectedId}
             onSelect={(id) => {
               setSelectedId(id);
