@@ -19,8 +19,10 @@ A high-performance, cross-platform password manager built with a "security-first
 - **Auto-Lock** — Vault locks after 5 minutes of inactivity or on system sleep.
 - **Clipboard Auto-Clear** — Copied passwords are wiped from the clipboard after 45 seconds.
 - **Biometric Unlock** — OS keychain integration for password-free unlock on supported systems.
-- **Dark/Light Themes** — System-native theme detection with manual override.
-- **Glassmorphism UI** — Frosted glass, translucent sidebar, macOS-inspired aesthetic.
+- **System Tray** — App runs in the background; closing the window hides to tray instead of quitting. Bridge stays alive for the browser extension.
+- **Save While Locked** — Credentials saved from the browser extension while the vault is locked are queued in memory and encrypted/stored once the user unlocks.
+- **Autostart** — Starts silently in the system tray on login via XDG autostart.
+- **Light Blue Theme** — Clean, minimal UI with sky-blue accents, SVG icons, and Apple Passwords-inspired layout.
 
 ---
 
@@ -45,10 +47,10 @@ A high-performance, cross-platform password manager built with a "security-first
 │  │  │ (Tauri) │  │ AES-GCM  │  │  SQLite  │  │ WS Server │  │ │
 │  │  │         │  │ Argon2id │  │(rusqlite)│  │ HTTP Disc │  │ │
 │  │  └─────────┘  └──────────┘  └──────────┘  └───────────┘  │ │
-│  │  ┌─────────┐  ┌──────────┐  ┌──────────┐                  │ │
-│  │  │  Auth   │  │Clipboard │  │Generator │                  │ │
-│  │  │  State  │  │ AutoClear│  │Pwd/Phrase│                  │ │
-│  │  └─────────┘  └──────────┘  └──────────┘                  │ │
+│  │  ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌───────────┐  │ │
+│  │  │  Auth   │  │Clipboard │  │Generator │  │Sys. Tray  │  │ │
+│  │  │  State  │  │ AutoClear│  │Pwd/Phrase│  │ + Menu    │  │ │
+│  │  └─────────┘  └──────────┘  └──────────┘  └───────────┘  │ │
 │  └────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -80,6 +82,66 @@ Per-Action Auth:
 Auto-Lock:
   5 min inactivity or system sleep -> lock vault -> wipe key from memory
 ```
+
+---
+
+## System Tray
+
+Gila runs as a background service in the system tray. The window is hidden on startup — the WebSocket bridge starts immediately so the browser extension can connect.
+
+### Tray Menu
+
+| Action | Behavior |
+|---|---|
+| **Open Gila** | Shows the window and reloads the frontend |
+| **Lock Vault** | Locks the vault, wipes the key, and shows the lock screen |
+| **Quit** | Fully exits the app (only way to stop the background process) |
+
+### Window Behavior
+
+- **Close (X button)** — Hides the window to tray; app keeps running
+- **Double-click tray icon** — Restores the window
+- **Extension "Open Gila" button** — Sends a `focus_app` command via the bridge to show and focus the window
+
+### Autostart
+
+On Linux, an XDG autostart entry starts the dev environment on login:
+
+```
+~/.config/autostart/gila.desktop → scripts/start-dev.sh → npm run tauri dev
+```
+
+The `scripts/start-dev.sh` script sets up PATH (nvm + cargo) and runs the Tauri dev server in the background. Logs are written to `/tmp/gila-dev.log`.
+
+---
+
+## Save While Locked
+
+When the vault is locked, the browser extension can still save credentials. They are queued in memory and encrypted/stored once the user unlocks.
+
+### Flow
+
+1. Extension detects a form submission and sends `save_credential` to the bridge
+2. Bridge detects the vault is locked, queues the credential as a `PendingCredential` in memory
+3. Bridge returns `{"result": {"name": "...", "queued": true}}`
+4. Extension shows a **"Credential queued — Gila is locked"** banner with an **"Open Gila"** button
+5. User opens Gila and unlocks the vault
+6. `unlock_vault` processes the pending queue — encrypts each credential and saves to the database
+
+### Locked-Page Detection
+
+When the extension detects a login form but the vault is locked, it shows a bottom-right popup:
+- "Gila is locked — Unlock your vault to autofill credentials on this page"
+- **"Open Gila & Unlock"** button focuses the app window via the bridge
+
+### What's Blocked When Locked
+
+| Operation | Behavior |
+|---|---|
+| **Autofill lookup** | Blocked — returns `vault_locked` |
+| **Get credential** | Blocked — returns `vault_locked` |
+| **Save credential** | Queued — saved on unlock |
+| **List/search metadata** | Allowed — no decryption needed |
 
 ---
 
@@ -129,11 +191,12 @@ The Gila browser extension integrates directly with the desktop app to auto-dete
 │  ├─ WebSocket Server (random port) ◄─────────────────────┘        │
 │  │  JSON-RPC protocol:                                            │
 │  │  ├─ auth      — authenticate with token                        │
-│  │  ├─ lookup    — find credentials by URL (domain matching)      │
-│  │  ├─ get_credential — decrypt and return full credential        │
-│  │  ├─ save_credential — encrypt and store new credential         │
+│  │  ├─ lookup    — find credentials by URL (blocked if locked)    │
+│  │  ├─ get_credential — decrypt and return (blocked if locked)    │
+│  │  ├─ save_credential — encrypt and store (queued if locked)     │
+│  │  ├─ focus_app — show and focus the app window                  │
 │  │  └─ status    — check vault lock state                         │
-│  └─ All operations require vault to be unlocked                   │
+│  └─ Credential saves are queued when locked, processed on unlock  │
 │                                                                   │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -182,10 +245,9 @@ When a user submits a login form with credentials not already in the vault:
 1. The content script intercepts the `submit` event
 2. Captures the username and password values
 3. Checks the vault for existing credentials for this URL
-4. If new, shows a **"Save to Gila?"** banner at the top of the page
-5. Clicking "Save" sends the credential to the desktop app for encryption and storage
+4. If new, saves the credential directly to the desktop app
+5. If the vault is locked, queues the credential and shows a "Gila is locked" banner
 6. The desktop app shows a toast notification confirming the save
-7. The banner auto-dismisses after 15 seconds
 
 ### Inline Suggestions
 
@@ -206,7 +268,7 @@ gila/
 ├── src/                            # React frontend
 │   ├── App.tsx                     # Screen routing (loading/onboarding/locked/main)
 │   ├── main.tsx                    # React entry point
-│   ├── index.css                   # Tailwind imports + dark mode config
+│   ├── index.css                   # Tailwind + custom scrollbar/input styling
 │   ├── types/
 │   │   └── credentials.ts         # TypeScript types for all credential schemas
 │   ├── hooks/
@@ -220,12 +282,12 @@ gila/
 │   └── components/
 │       ├── layout/
 │       │   ├── AppLayout.tsx      # Main 3-panel layout with state management
-│       │   ├── Sidebar.tsx        # Category navigation + theme toggle
+│       │   ├── Sidebar.tsx        # Category navigation with SVG icons
 │       │   ├── DetailPanel.tsx    # Right panel container
 │       │   └── Toast.tsx          # Toast notification for browser-saved creds
 │       ├── credentials/
-│       │   ├── CredentialList.tsx  # Scrollable credential list with icons
-│       │   ├── CredentialDetail.tsx# Field display with mask/reveal/copy
+│       │   ├── CredentialList.tsx  # Scrollable credential list with icon badges
+│       │   ├── CredentialDetail.tsx# Centered detail with hover-to-reveal actions
 │       │   └── DeleteDialog.tsx   # Confirmation modal for deletion
 │       ├── forms/
 │       │   └── CredentialForm.tsx # Dynamic create/edit form per type
@@ -237,12 +299,12 @@ gila/
 │           └── PasswordStrength.tsx# 5-level password strength meter
 │
 ├── src-tauri/                      # Rust backend
-│   ├── Cargo.toml                  # Rust dependencies
-│   ├── tauri.conf.json             # Tauri app configuration
+│   ├── Cargo.toml                  # Rust dependencies (includes tray-icon feature)
+│   ├── tauri.conf.json             # Tauri config (window starts hidden)
 │   ├── src/
-│   │   ├── lib.rs                  # App setup, plugin init, command registration
+│   │   ├── lib.rs                  # App setup, tray menu, window management
 │   │   ├── main.rs                 # Binary entry point
-│   │   ├── state.rs                # AppState (DbPool + DerivedKey + AuthState)
+│   │   ├── state.rs                # AppState (DB + Key + Auth + PendingCredentials + AppHandle)
 │   │   ├── crypto/
 │   │   │   ├── kdf.rs             # Argon2id key derivation + salt generation
 │   │   │   └── cipher.rs          # AES-256-GCM encrypt/decrypt
@@ -252,11 +314,11 @@ gila/
 │   │   ├── auth/
 │   │   │   └── mod.rs             # Lock state, inactivity timer, grace period
 │   │   ├── bridge/
-│   │   │   └── mod.rs             # WebSocket server + HTTP discovery endpoint
+│   │   │   └── mod.rs             # WebSocket server + HTTP discovery + focus_app
 │   │   ├── commands/
 │   │   │   ├── vault.rs           # Credential CRUD + URL lookup commands
 │   │   │   ├── init.rs            # Vault init + password verification
-│   │   │   ├── auth.rs            # Lock/unlock, request_auth, confirm_auth
+│   │   │   ├── auth.rs            # Lock/unlock + pending credential processing
 │   │   │   ├── biometric.rs       # Keychain-based biometric enrollment/unlock
 │   │   │   ├── clipboard.rs       # Copy with 45s auto-clear
 │   │   │   └── generator.rs       # Password generation command
@@ -270,7 +332,7 @@ gila/
 ├── browser-extension/              # Chrome browser extension (Manifest V3)
 │   ├── manifest.json               # Extension manifest
 │   ├── popup.html                  # Popup UI shell
-│   ├── popup.css                   # Popup styling (dark glassmorphism)
+│   ├── popup.css                   # Popup styling
 │   ├── icons/                      # Extension icons (16/48/128 PNG)
 │   ├── test-page.html              # Test login page for development
 │   ├── native-host/                # Native messaging host (optional fallback)
@@ -278,15 +340,18 @@ gila/
 │   │   └── com.rpyncierto.gila.json # Host manifest
 │   ├── install-native-host.sh      # Native host installer (optional)
 │   └── src/
-│       ├── background.js           # Service worker — auto-discovery + message routing
+│       ├── background.js           # Service worker — discovery + message routing + focus_app
 │       ├── bridge.js               # WebSocket client with reconnection
-│       ├── content.js              # Form detection + auto-fill + save prompt + inline icons
+│       ├── content.js              # Form detection + auto-fill + save/locked/queued banners
 │       ├── content.css             # Content script styles
 │       ├── popup.js                # Popup logic — credential listing + fill trigger
 │       ├── autofill.js             # Framework-compatible input value setter
 │       ├── detector.js             # Form detection heuristics (reference module)
 │       ├── save-prompt.js          # Save banner UI (reference module)
 │       └── inline-suggest.js       # Inline icon + Shadow DOM dropdown (reference module)
+│
+├── scripts/
+│   └── start-dev.sh               # Autostart script — runs npm run tauri dev in background
 │
 ├── PRD.md                          # Product Requirements Document
 ├── CLAUDE.md                       # Claude Code project guidance
@@ -328,6 +393,8 @@ npm run tauri dev
 npm run dev              # Vite dev server on http://localhost:1420
 cd src-tauri && cargo build  # Rust backend
 ```
+
+The app starts hidden in the system tray. Double-click the tray icon or use the tray menu to open the window.
 
 ### Build for Production
 
@@ -383,7 +450,7 @@ If it shows "Not connected", click **Reconnect to Gila** or use the manual confi
 A test login page is included for development:
 
 1. Open `browser-extension/test-page.html` in the browser
-2. **Test save detection:** Type an email and password, click "Sign In" — a "Save to Gila?" banner appears
+2. **Test save detection:** Type an email and password, click "Sign In" — the credential is saved to Gila
 3. **Test auto-fill:** After saving, refresh the page — the "G" icon appears in the fields, click it to auto-fill
 4. **Test popup:** Click the Gila extension icon — matching credentials appear, click to fill
 
@@ -411,24 +478,28 @@ All messages are JSON. The first message must be `auth`:
 -> { "method": "auth", "token": "abc123..." }
 <- { "result": "authenticated" }
 
-// Lookup credentials by URL
+// Lookup credentials by URL (blocked when locked)
 -> { "method": "lookup", "url": "https://github.com/login" }
 <- { "result": [{ "id": "...", "name": "GitHub", "cred_type": "login" }] }
 
-// Get decrypted credential
+// Get decrypted credential (blocked when locked)
 -> { "method": "get_credential", "id": "uuid-here" }
 <- { "result": { "id": "...", "name": "GitHub", "data": { "username": "...", "password": "..." } } }
 
-// Save new credential from browser
+// Save credential (queued when locked, saved on unlock)
 -> { "method": "save_credential", "name": "GitHub", "url": "https://github.com", "username": "user", "password": "pass" }
 <- { "result": { "id": "new-uuid", "name": "GitHub" } }
+// or when locked:
+<- { "result": { "name": "GitHub", "queued": true } }
+
+// Focus the app window (show + reload if needed)
+-> { "method": "focus_app" }
+<- { "result": "ok" }
 
 // Check vault status
 -> { "method": "status" }
 <- { "result": { "locked": false } }
 ```
-
-All credential operations return `{"error": "vault_locked"}` if the vault is locked.
 
 ---
 
@@ -450,7 +521,7 @@ All frontend-backend communication happens through Tauri `invoke` commands:
 |---|---|
 | `get_lock_state` | Get current lock state + check auto-lock |
 | `lock_vault` | Lock the vault and wipe key from memory |
-| `unlock_vault` | Unlock with master password |
+| `unlock_vault` | Unlock with master password + process pending credentials |
 | `touch_activity` | Reset inactivity timer |
 | `request_auth` | Check if within 30s grace period |
 | `confirm_auth` | Re-authenticate for sensitive action |
@@ -531,7 +602,7 @@ The `data` column stores `nonce(12 bytes) || ciphertext || tag(16 bytes)` — th
 
 | Crate | Purpose |
 |---|---|
-| `tauri` | Desktop app framework |
+| `tauri` | Desktop app framework (with `tray-icon` and `image-png` features) |
 | `argon2` | Argon2id password hashing / key derivation |
 | `aes-gcm` | AES-256-GCM authenticated encryption |
 | `zeroize` | Secure memory wiping |
@@ -576,7 +647,8 @@ The `data` column stores `nonce(12 bytes) || ciphertext || tag(16 bytes)` — th
 | **Phase 2 — Desktop Shell** | Done | Full CRUD UI, search, password generator, themes |
 | **Phase 3 — Biometric Gate** | Done | Lock screen, per-action auth, OS keychain integration |
 | **Phase 4 — Browser Extension** | Done | Form detection, auto-fill, save detection, inline suggestions |
-| **Phase 5 — Mobile Port** | Planned | Android/iOS via Tauri v2 mobile workflows |
+| **Phase 5 — System Tray & UX** | Done | Background tray, save-while-locked queue, autostart, light blue redesign |
+| **Phase 6 — Mobile Port** | Planned | Android/iOS via Tauri v2 mobile workflows |
 
 ---
 
