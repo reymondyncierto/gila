@@ -1,16 +1,69 @@
 // Gila Browser Extension — Background Service Worker
 // Hub for WebSocket bridge and message routing
+// Auto-discovers bridge connection via Native Messaging
 
 import { GilaBridge } from './bridge.js';
 
+const NATIVE_HOST_NAME = 'com.rpyncierto.gila';
 const bridge = new GilaBridge();
 
-// Initialize connection
-bridge.loadConfig().then(() => {
+// Auto-discover bridge config on startup
+async function autoConnect() {
+  // First try saved config
+  await bridge.loadConfig();
   if (bridge.port && bridge.token) {
     bridge.connect();
+    // Verify connection works; if not, try native messaging
+    setTimeout(() => {
+      if (!bridge.isConnected) {
+        discoverViaNativeMessaging();
+      }
+    }, 2000);
+    return;
   }
-});
+
+  // No saved config — try native messaging
+  discoverViaNativeMessaging();
+}
+
+function discoverViaNativeMessaging() {
+  try {
+    const port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+
+    port.onMessage.addListener((response) => {
+      if (response.port && response.token) {
+        console.log('[Gila] Auto-discovered bridge config via native messaging');
+        bridge.saveConfig(response.port, response.token);
+        bridge.connect();
+      } else if (response.error) {
+        console.warn('[Gila] Native host error:', response.message || response.error);
+      }
+      port.disconnect();
+    });
+
+    port.onDisconnect.addListener(() => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        console.log('[Gila] Native messaging not available:', error.message);
+        console.log('[Gila] Use the popup settings to configure manually.');
+      }
+    });
+
+    // Send request for config
+    port.postMessage({ action: 'get_config' });
+  } catch (e) {
+    console.log('[Gila] Native messaging not installed. Use popup to configure manually.');
+  }
+}
+
+// Also periodically refresh config in case Gila was restarted (new port)
+setInterval(() => {
+  if (!bridge.isConnected) {
+    discoverViaNativeMessaging();
+  }
+}, 30000); // Every 30 seconds if disconnected
+
+autoConnect();
 
 // Listen for messages from content scripts and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -23,6 +76,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       bridge.disconnect();
       bridge.saveConfig(request.port, request.token);
       bridge.connect();
+      sendResponse({ ok: true });
+      return true;
+
+    case 'reconnect':
+      discoverViaNativeMessaging();
       sendResponse({ ok: true });
       return true;
 
@@ -49,7 +107,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
 
     case 'forms_detected':
-      // Store form detection info per tab for the popup
       if (sender.tab?.id) {
         chrome.storage.session?.set?.({ [`forms_${sender.tab.id}`]: request });
       }

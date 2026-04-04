@@ -1,0 +1,9 @@
+{
+  "name": "com.rpyncierto.gila",
+  "description": "Gila Password Manager — Bridge Config Provider",
+  "path": "/home/rpyncierto/Desktop/music-admin/gila/browser-extension/native-host/gila_bridge_host.py",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://EXTENSION_ID_HERE/"
+  ]
+}

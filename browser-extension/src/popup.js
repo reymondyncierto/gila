@@ -103,36 +103,53 @@ function showSettings() {
   const settingsDiv = document.createElement('div');
   settingsDiv.style.cssText = 'padding: 12px 0;';
   settingsDiv.innerHTML = `
-    <div style="margin-bottom: 8px;">
-      <label style="font-size: 11px; color: rgba(255,255,255,0.4); display: block; margin-bottom: 4px;">Port</label>
-      <input id="cfg-port" type="number" placeholder="e.g., 9876" style="width: 100%; padding: 6px 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 12px; outline: none;">
-    </div>
-    <div style="margin-bottom: 8px;">
-      <label style="font-size: 11px; color: rgba(255,255,255,0.4); display: block; margin-bottom: 4px;">Token</label>
-      <input id="cfg-token" type="text" placeholder="Auth token from ~/.gila/bridge.token" style="width: 100%; padding: 6px 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 12px; outline: none;">
-    </div>
-    <button id="cfg-save" style="width: 100%; padding: 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 6px; color: #fff; font-size: 12px; cursor: pointer;">Connect</button>
-    <p style="font-size: 10px; color: rgba(255,255,255,0.25); margin-top: 8px; text-align: center;">
-      Find port in ~/.gila/bridge.port<br>and token in ~/.gila/bridge.token
+    <button id="cfg-reconnect" style="width: 100%; padding: 10px; background: rgba(74, 222, 128, 0.12); border: 1px solid rgba(74, 222, 128, 0.25); border-radius: 8px; color: #4ade80; font-size: 13px; font-weight: 500; cursor: pointer; margin-bottom: 12px;">
+      Reconnect to Gila
+    </button>
+    <p style="font-size: 11px; color: rgba(255,255,255,0.35); text-align: center; margin-bottom: 16px;">
+      Make sure the Gila desktop app is running
     </p>
+    <details style="margin-top: 4px;">
+      <summary style="font-size: 11px; color: rgba(255,255,255,0.3); cursor: pointer; margin-bottom: 8px;">
+        Manual connection setup
+      </summary>
+      <div style="margin-top: 8px;">
+        <div style="margin-bottom: 8px;">
+          <label style="font-size: 11px; color: rgba(255,255,255,0.4); display: block; margin-bottom: 4px;">Port</label>
+          <input id="cfg-port" type="number" placeholder="e.g., 9876" style="width: 100%; padding: 6px 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 12px; outline: none;">
+        </div>
+        <div style="margin-bottom: 8px;">
+          <label style="font-size: 11px; color: rgba(255,255,255,0.4); display: block; margin-bottom: 4px;">Token</label>
+          <input id="cfg-token" type="text" placeholder="Auth token" style="width: 100%; padding: 6px 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 12px; outline: none;">
+        </div>
+        <button id="cfg-save" style="width: 100%; padding: 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 6px; color: #fff; font-size: 12px; cursor: pointer;">Save & Connect</button>
+      </div>
+    </details>
   `;
   credentialsEl.appendChild(settingsDiv);
 
-  // Load existing values
-  chrome.storage.local.get(['gilaPort', 'gilaToken'], (result) => {
-    if (result.gilaPort) document.getElementById('cfg-port').value = result.gilaPort;
-    if (result.gilaToken) document.getElementById('cfg-token').value = result.gilaToken;
+  // Reconnect button triggers auto-discovery via native messaging
+  document.getElementById('cfg-reconnect').addEventListener('click', async () => {
+    showStatus('Reconnecting...', '');
+    await sendMessage({ type: 'reconnect' });
+    setTimeout(init, 2000);
   });
 
-  document.getElementById('cfg-save').addEventListener('click', async () => {
+  // Manual config fallback
+  chrome.storage.local.get(['gilaPort', 'gilaToken'], (result) => {
+    const portEl = document.getElementById('cfg-port');
+    const tokenEl = document.getElementById('cfg-token');
+    if (portEl && result.gilaPort) portEl.value = result.gilaPort;
+    if (tokenEl && result.gilaToken) tokenEl.value = result.gilaToken;
+  });
+
+  document.getElementById('cfg-save')?.addEventListener('click', async () => {
     const port = document.getElementById('cfg-port').value;
     const token = document.getElementById('cfg-token').value;
     if (!port || !token) return;
 
     await sendMessage({ type: 'update_config', port: parseInt(port), token });
     showStatus('Connecting...', '');
-
-    // Wait and retry
     setTimeout(init, 1500);
   });
 }
