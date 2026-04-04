@@ -198,10 +198,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // ===== Save Detection =====
+// Simple approach: capture password as user types, save directly when any button is clicked.
 
-// Track the last password typed (captures it live, before navigation clears it)
 let lastTypedPassword = '';
 let lastTypedUsername = '';
+let credentialSaved = false;
 
 function attachSaveDetection(forms) {
   for (const detected of forms) {
@@ -210,43 +211,12 @@ function attachSaveDetection(forms) {
     if (passwordField.dataset.gilaSave) continue;
     passwordField.dataset.gilaSave = 'true';
 
-    // Capture credentials as the user types and persist to chrome.storage.session.
-    // The background script will auto-save when the page navigates away.
-    // No prompts, no banners — fully automatic.
+    // Capture password on every keystroke
     passwordField.addEventListener('input', () => {
       lastTypedPassword = passwordField.value;
-      if (lastTypedPassword) {
-        const username = usernameField?.value || lastTypedUsername || findUsernameOnPage() || '';
-        console.log('[Gila] Password typed, persisting to storage. Username:', username || '(scanning page...)');
-        chrome.storage.session.set({
-          pendingCredential: {
-            username,
-            password: lastTypedPassword,
-            url: window.location.href,
-            hostname: window.location.hostname,
-            name: document.title || window.location.hostname,
-            timestamp: Date.now(),
-          }
-        }).catch(() => {});
-      }
     });
-
-    // Also capture on keyup (some sites don't fire input properly)
     passwordField.addEventListener('keyup', () => {
-      if (passwordField.value && passwordField.value !== lastTypedPassword) {
-        lastTypedPassword = passwordField.value;
-        const username = usernameField?.value || lastTypedUsername || findUsernameOnPage() || '';
-        chrome.storage.session.set({
-          pendingCredential: {
-            username,
-            password: lastTypedPassword,
-            url: window.location.href,
-            hostname: window.location.hostname,
-            name: document.title || window.location.hostname,
-            timestamp: Date.now(),
-          }
-        }).catch(() => {});
-      }
+      if (passwordField.value) lastTypedPassword = passwordField.value;
     });
 
     if (usernameField) {
@@ -254,6 +224,46 @@ function attachSaveDetection(forms) {
         lastTypedUsername = usernameField.value;
       });
     }
+
+    // Save function — sends directly to background
+    function saveNow() {
+      if (credentialSaved) return;
+      const password = passwordField.value || lastTypedPassword;
+      if (!password) return;
+
+      const username = usernameField?.value || lastTypedUsername || findUsernameOnPage() || '';
+      credentialSaved = true;
+
+      console.log('[Gila] Saving credential — username:', username, 'url:', window.location.href);
+
+      chrome.runtime.sendMessage({
+        type: 'save_credential',
+        name: document.title || window.location.hostname,
+        url: window.location.href,
+        username: username,
+        password: password,
+      }).catch(() => {});
+    }
+
+    // Save on form submit
+    if (form) {
+      form.addEventListener('submit', saveNow);
+    }
+
+    // Save on ANY button click when password is filled
+    document.addEventListener('click', (e) => {
+      if (!lastTypedPassword && !passwordField.value) return;
+      const btn = e.target.closest('button, [role="button"], input[type="submit"], a');
+      if (btn) setTimeout(saveNow, 100);
+    }, { capture: true });
+
+    // Save on Enter key in password field
+    passwordField.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') setTimeout(saveNow, 100);
+    });
+
+    // Save on page unload as last resort
+    window.addEventListener('beforeunload', saveNow);
   }
 }
 
