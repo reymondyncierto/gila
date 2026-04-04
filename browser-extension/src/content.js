@@ -66,6 +66,9 @@ function detectLoginForms() {
 console.log('[Gila] Content script loaded on', window.location.href);
 
 let detectedForms = [];
+const savedFormRefs = new WeakSet();
+let savePromptShown = false;
+let activeInlineDropdown = null;
 
 function onFormsDetected(forms) {
   detectedForms = forms;
@@ -183,10 +186,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // ===== Save Detection =====
-
-const savedFormRefs = new WeakSet();
-
-let savePromptShown = false;
 
 function attachSaveDetection(forms) {
   for (const detected of forms) {
@@ -318,8 +317,6 @@ function escapeForHTML(text) {
 }
 
 // ===== Inline Suggestion Icons =====
-
-let activeInlineDropdown = null;
 
 function attachInlineIcons(forms, credentials) {
   for (const detected of forms) {
