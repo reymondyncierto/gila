@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 interface LockScreenProps {
   onUnlock: () => void;
+}
+
+interface BiometricStatus {
+  available: boolean;
+  enrolled: boolean;
 }
 
 export default function LockScreen({ onUnlock }: LockScreenProps) {
@@ -10,6 +15,11 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [biometric, setBiometric] = useState<BiometricStatus>({ available: false, enrolled: false });
+
+  useEffect(() => {
+    invoke<BiometricStatus>("check_biometric_status").then(setBiometric).catch(() => {});
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -21,9 +31,22 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
     try {
       await invoke("unlock_vault", { masterPassword: password });
       onUnlock();
-    } catch (err) {
+    } catch {
       setError("Incorrect password");
       setPassword("");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleBiometric() {
+    setLoading(true);
+    setError("");
+    try {
+      await invoke("biometric_unlock");
+      onUnlock();
+    } catch (err) {
+      setError("Biometric authentication failed");
     } finally {
       setLoading(false);
     }
@@ -55,9 +78,7 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
             </button>
           </div>
 
-          {error && (
-            <p className="text-sm text-red-400">{error}</p>
-          )}
+          {error && <p className="text-sm text-red-400">{error}</p>}
 
           <button
             type="submit"
@@ -67,13 +88,16 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
             {loading ? "Unlocking..." : "Unlock"}
           </button>
 
-          <button
-            type="button"
-            disabled
-            className="w-full py-2 rounded-lg bg-white/5 text-white/30 text-sm cursor-not-allowed"
-          >
-            Use Biometrics (coming soon)
-          </button>
+          {biometric.available && biometric.enrolled && (
+            <button
+              type="button"
+              onClick={handleBiometric}
+              disabled={loading}
+              className="w-full py-2 rounded-lg bg-white/5 text-white/60 text-sm hover:bg-white/10 disabled:opacity-30 transition-colors"
+            >
+              Unlock with Biometrics
+            </button>
+          )}
         </form>
       </div>
     </div>

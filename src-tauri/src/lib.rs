@@ -52,6 +52,11 @@ pub fn run() {
             commands::auth::touch_activity,
             commands::auth::request_auth,
             commands::auth::confirm_auth,
+            commands::biometric::check_biometric_status,
+            commands::biometric::enroll_biometric,
+            commands::biometric::biometric_unlock,
+            commands::biometric::biometric_confirm_auth,
+            commands::biometric::remove_biometric,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

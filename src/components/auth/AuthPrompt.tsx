@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 interface AuthPromptProps {
@@ -6,10 +6,20 @@ interface AuthPromptProps {
   onCancel: () => void;
 }
 
+interface BiometricStatus {
+  available: boolean;
+  enrolled: boolean;
+}
+
 export default function AuthPrompt({ onSuccess, onCancel }: AuthPromptProps) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [biometric, setBiometric] = useState<BiometricStatus>({ available: false, enrolled: false });
+
+  useEffect(() => {
+    invoke<BiometricStatus>("check_biometric_status").then(setBiometric).catch(() => {});
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,6 +34,19 @@ export default function AuthPrompt({ onSuccess, onCancel }: AuthPromptProps) {
     } catch {
       setError("Incorrect password");
       setPassword("");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleBiometric() {
+    setLoading(true);
+    setError("");
+    try {
+      await invoke("biometric_confirm_auth");
+      onSuccess();
+    } catch {
+      setError("Biometric authentication failed");
     } finally {
       setLoading(false);
     }
@@ -66,13 +89,16 @@ export default function AuthPrompt({ onSuccess, onCancel }: AuthPromptProps) {
             </button>
           </div>
 
-          <button
-            type="button"
-            disabled
-            className="w-full py-2 rounded-lg bg-white/5 text-white/30 text-xs cursor-not-allowed"
-          >
-            Use Biometrics (coming soon)
-          </button>
+          {biometric.available && biometric.enrolled && (
+            <button
+              type="button"
+              onClick={handleBiometric}
+              disabled={loading}
+              className="w-full py-2 rounded-lg bg-white/5 text-white/60 text-xs hover:bg-white/10 disabled:opacity-30 transition-colors"
+            >
+              Use Biometrics
+            </button>
+          )}
         </form>
       </div>
     </div>
