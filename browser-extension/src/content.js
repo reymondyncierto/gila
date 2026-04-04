@@ -96,6 +96,12 @@ function onFormsDetected(forms) {
   chrome.runtime.sendMessage(
     { type: 'lookup', url: window.location.href, username: detectedUser },
     (response) => {
+      // If the vault is locked, show a prompt to unlock
+      if (response?.error === 'vault_locked') {
+        showLockedBanner();
+        return;
+      }
+
       let matches = response?.result || [];
 
       // Filter: only show credentials whose username matches the email on the page
@@ -181,6 +187,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.type === 'fill_credential') {
     fillCredential(request.username, request.password);
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (request.type === 'save_queued') {
+    showQueuedBanner(request.name);
     sendResponse({ ok: true });
     return true;
   }
@@ -389,6 +401,307 @@ function escapeForHTML(text) {
   const d = document.createElement('div');
   d.textContent = text;
   return d.innerHTML;
+}
+
+// ===== Vault Locked Banner =====
+// Shown when a login form is detected but the vault is locked.
+
+let lockedBannerShown = false;
+
+function showLockedBanner() {
+  if (lockedBannerShown) return;
+  lockedBannerShown = true;
+
+  const existing = document.getElementById('gila-locked-banner');
+  if (existing) existing.remove();
+
+  const banner = document.createElement('div');
+  banner.id = 'gila-locked-banner';
+
+  const shadow = banner.attachShadow({ mode: 'closed' });
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes gilaSlideUp {
+      from { transform: translateY(100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes gilaFadeOut {
+      from { opacity: 1; }
+      to { opacity: 0; transform: translateY(10px); }
+    }
+    .bar {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 2147483647;
+      width: 300px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      animation: gilaSlideUp 0.35s ease-out;
+      overflow: hidden;
+    }
+    .bar.closing {
+      animation: gilaFadeOut 0.25s ease-in forwards;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px 0;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, #38bdf8, #0284c7);
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .logo svg {
+      width: 16px; height: 16px;
+      color: #fff;
+    }
+    .title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .close-btn {
+      background: none;
+      border: none;
+      color: #94a3b8;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      line-height: 1;
+    }
+    .close-btn:hover {
+      color: #64748b;
+      background: #f1f5f9;
+    }
+    .body {
+      padding: 10px 16px 14px;
+    }
+    .msg {
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+    .open-btn {
+      display: block;
+      width: 100%;
+      padding: 9px;
+      background: #0ea5e9;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      text-align: center;
+    }
+    .open-btn:hover {
+      background: #0284c7;
+    }
+  `;
+
+  const container = document.createElement('div');
+  container.className = 'bar';
+  container.innerHTML = `
+    <div class="header">
+      <div class="brand">
+        <div class="logo">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+        <span class="title">Gila is locked</span>
+      </div>
+      <button class="close-btn">\u2715</button>
+    </div>
+    <div class="body">
+      <div class="msg">Unlock your vault to autofill credentials on this page.</div>
+      <button class="open-btn">Open Gila & Unlock</button>
+    </div>
+  `;
+
+  shadow.appendChild(style);
+  shadow.appendChild(container);
+
+  banner.style.cssText = 'position: fixed; bottom: 0; right: 0; z-index: 2147483647;';
+  document.body.appendChild(banner);
+
+  function dismiss() {
+    container.classList.add('closing');
+    setTimeout(() => { if (banner.parentNode) banner.remove(); }, 250);
+  }
+
+  shadow.querySelector('.close-btn').addEventListener('click', dismiss);
+
+  shadow.querySelector('.open-btn').addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'focus_app' }).catch(() => {});
+    dismiss();
+  });
+
+  // Auto-dismiss after 30 seconds
+  setTimeout(() => { if (banner.parentNode) dismiss(); }, 30000);
+}
+
+// ===== Queued Credential Banner =====
+// Shown when a credential is saved while the vault is locked.
+
+function showQueuedBanner(credName) {
+  const existing = document.getElementById('gila-queued-banner');
+  if (existing) existing.remove();
+
+  const banner = document.createElement('div');
+  banner.id = 'gila-queued-banner';
+
+  const shadow = banner.attachShadow({ mode: 'closed' });
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes gilaSlideDown {
+      from { transform: translateY(-100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes gilaFadeOut {
+      from { opacity: 1; }
+      to { opacity: 0; transform: translateY(-10px); }
+    }
+    .banner {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 2147483647;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 50%, #e0f2fe 100%);
+      border-bottom: 1px solid #bae6fd;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      box-shadow: 0 4px 16px rgba(14, 165, 233, 0.12);
+      animation: gilaSlideDown 0.3s ease-out;
+    }
+    .banner.closing {
+      animation: gilaFadeOut 0.25s ease-in forwards;
+    }
+    .left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, #38bdf8, #0284c7);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .icon svg {
+      width: 18px; height: 18px;
+      color: #fff;
+    }
+    .title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #0c4a6e;
+    }
+    .subtitle {
+      font-size: 11px;
+      color: #0369a1;
+      margin-top: 2px;
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .open-btn {
+      padding: 7px 16px;
+      background: #0ea5e9;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .open-btn:hover {
+      background: #0284c7;
+    }
+    .dismiss-btn {
+      padding: 7px 12px;
+      background: transparent;
+      color: #64748b;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .dismiss-btn:hover {
+      background: rgba(0, 0, 0, 0.04);
+    }
+  `;
+
+  const container = document.createElement('div');
+  container.className = 'banner';
+  const escapedName = escapeForHTML(credName || 'Credential');
+  container.innerHTML = `
+    <div class="left">
+      <div class="icon">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+      </div>
+      <div>
+        <div class="title">Credential queued — Gila is locked</div>
+        <div class="subtitle">${escapedName} will be saved once you unlock your vault.</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="open-btn">Open Gila</button>
+      <button class="dismiss-btn">Dismiss</button>
+    </div>
+  `;
+
+  shadow.appendChild(style);
+  shadow.appendChild(container);
+
+  banner.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; z-index: 2147483647;';
+  document.body.appendChild(banner);
+
+  function dismiss() {
+    container.classList.add('closing');
+    setTimeout(() => { if (banner.parentNode) banner.remove(); }, 250);
+  }
+
+  shadow.querySelector('.open-btn').addEventListener('click', () => {
+    // Attempt to focus/open the Gila app via a custom protocol
+    // Falls back to just dismissing the banner
+    chrome.runtime.sendMessage({ type: 'focus_app' }).catch(() => {});
+    dismiss();
+  });
+
+  shadow.querySelector('.dismiss-btn').addEventListener('click', dismiss);
+
+  // Auto-dismiss after 20 seconds
+  setTimeout(() => { if (banner.parentNode) dismiss(); }, 20000);
 }
 
 // ===== Inline Suggestion Icons =====

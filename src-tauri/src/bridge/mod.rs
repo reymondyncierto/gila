@@ -306,23 +306,41 @@ fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -
         }
 
         "save_credential" => {
-            {
-                let auth = state.auth.lock().expect("auth mutex poisoned");
-                if auth.is_locked() {
-                    return r#"{"error":"vault_locked"}"#.to_string();
-                }
-            }
-
-            let key_guard = state.key.lock().expect("key mutex poisoned");
-            let key = match key_guard.as_ref() {
-                Some(k) => *k.as_bytes(),
-                None => return r#"{"error":"vault_locked"}"#.to_string(),
-            };
-            drop(key_guard);
-
             let url = request["url"].as_str().unwrap_or("");
             let username = request["username"].as_str().unwrap_or("");
             let password = request["password"].as_str().unwrap_or("");
+
+            // If vault is locked, queue the credential for processing on unlock
+            let is_locked = {
+                let auth = state.auth.lock().expect("auth mutex poisoned");
+                auth.is_locked()
+            };
+            let key_available = {
+                let key_guard = state.key.lock().expect("key mutex poisoned");
+                key_guard.is_some()
+            };
+
+            if is_locked || !key_available {
+                let domain = db::extract_domain(url).unwrap_or_default();
+                let name = if domain.is_empty() {
+                    request["name"].as_str().unwrap_or("Unknown Site").to_string()
+                } else {
+                    domain
+                };
+                let pending = crate::state::PendingCredential {
+                    url: url.to_string(),
+                    username: username.to_string(),
+                    password: password.to_string(),
+                    name: name.clone(),
+                };
+                let mut queue = state.pending_credentials.lock().expect("pending mutex poisoned");
+                queue.push(pending);
+                return serde_json::json!({ "result": { "name": name, "queued": true } }).to_string();
+            }
+
+            let key_guard = state.key.lock().expect("key mutex poisoned");
+            let key = *key_guard.as_ref().unwrap().as_bytes();
+            drop(key_guard);
 
             // Use domain as the credential name (e.g., "google.com") instead of page title
             let domain = db::extract_domain(url).unwrap_or_default();
@@ -406,6 +424,18 @@ fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -
                 }
                 Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
             }
+        }
+
+        "focus_app" => {
+            let handle_guard = state.app_handle.lock().expect("app_handle mutex poisoned");
+            if let Some(handle) = handle_guard.as_ref() {
+                use tauri::Manager;
+                if let Some(window) = handle.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+            r#"{"result":"ok"}"#.to_string()
         }
 
         _ => r#"{"error":"unknown_method"}"#.to_string(),

@@ -46,8 +46,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         password: request.password,
       }).then((result) => {
         console.log('[Gila] Save result:', result);
+        // If the vault was locked, the credential was queued — notify the tab
+        if (result?.result?.queued && sender?.tab?.id) {
+          chrome.tabs.sendMessage(sender.tab.id, {
+            type: 'save_queued',
+            name: result.result.name,
+          }).catch(() => {});
+        }
         sendResponse(result);
       });
+      return true;
+
+    case 'focus_app':
+      bridge.send({ method: 'focus_app' }).then(sendResponse);
       return true;
 
     case 'bridge_send':

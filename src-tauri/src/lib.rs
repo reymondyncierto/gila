@@ -28,6 +28,8 @@ pub fn run() {
 
             let key = Arc::new(Mutex::new(None));
             let auth_state = Arc::new(Mutex::new(auth::AuthState::new()));
+            let pending = Arc::new(Mutex::new(Vec::new()));
+            let handle = Arc::new(Mutex::new(Some(app.handle().clone())));
 
             // Start the WebSocket bridge with its own DB connection
             let bridge_pool = db::DbPool::new(&db_path).expect("failed to open bridge database");
@@ -36,6 +38,8 @@ pub fn run() {
                 db: bridge_pool,
                 key: Arc::clone(&key),
                 auth: Arc::clone(&auth_state),
+                pending_credentials: Arc::clone(&pending),
+                app_handle: Arc::clone(&handle),
             });
             bridge::start_bridge(bridge_state);
 
@@ -43,6 +47,8 @@ pub fn run() {
                 db: pool,
                 key,
                 auth: auth_state,
+                pending_credentials: pending,
+                app_handle: handle,
             });
 
             Ok(())

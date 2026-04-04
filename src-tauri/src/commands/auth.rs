@@ -2,6 +2,8 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::commands::init::InitError;
+use crate::crypto;
+use crate::db;
 use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
@@ -54,8 +56,75 @@ pub fn unlock_vault(
 
     let mut auth = state.auth.lock().expect("auth mutex poisoned");
     auth.unlock();
+    drop(auth);
+
+    // Process any credentials queued while the vault was locked
+    process_pending_credentials(&state);
 
     Ok(())
+}
+
+/// Encrypt and save credentials that were queued by the bridge while the vault was locked.
+fn process_pending_credentials(state: &AppState) {
+    let pending: Vec<crate::state::PendingCredential> = {
+        let mut queue = state.pending_credentials.lock().expect("pending mutex poisoned");
+        queue.drain(..).collect()
+    };
+
+    if pending.is_empty() {
+        return;
+    }
+
+    let key = {
+        let key_guard = state.key.lock().expect("key mutex poisoned");
+        match key_guard.as_ref() {
+            Some(k) => *k.as_bytes(),
+            None => return, // no key available, skip
+        }
+    };
+
+    for cred in pending {
+        let domain = db::extract_domain(&cred.url).unwrap_or_default();
+        let name = if cred.name.is_empty() {
+            if domain.is_empty() { "Unknown Site".to_string() } else { domain.clone() }
+        } else {
+            cred.name.clone()
+        };
+
+        let data = serde_json::json!({
+            "service_name": name,
+            "url": cred.url,
+            "username": cred.username,
+            "password": cred.password,
+        });
+        let data_str = data.to_string();
+        let search_index = format!("{} {} {}", name, domain, cred.username).to_lowercase();
+
+        // Check for existing credential with the same username to update instead of duplicate
+        let username_lower = cred.username.to_lowercase();
+        let exact_match = if !cred.username.is_empty() {
+            if let Ok(matches) = db::match_credentials_by_url(&state.db, &cred.url) {
+                matches.into_iter().find(|m| {
+                    m.search_index.to_lowercase().contains(&username_lower)
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(matched) = exact_match {
+            if let Ok(encrypted) = crypto::encrypt(&key, data_str.as_bytes()) {
+                let _ = db::update_credential(&state.db, &matched.id, &name, &search_index, &encrypted);
+            }
+        } else {
+            if let Ok(encrypted) = crypto::encrypt(&key, data_str.as_bytes()) {
+                let id = uuid::Uuid::new_v4().to_string();
+                let _ = db::create_credential(&state.db, &id, "login", &name, &search_index, &encrypted);
+            }
+        }
+    }
 }
 
 #[tauri::command]
