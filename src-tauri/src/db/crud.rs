@@ -20,6 +20,7 @@ pub struct CredentialMeta {
     pub id: String,
     pub cred_type: String,
     pub name: String,
+    pub search_index: String,
     pub favorite: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -64,7 +65,7 @@ pub fn get_credential(pool: &DbPool, id: &str) -> Result<CredentialRow> {
 pub fn list_credentials(pool: &DbPool, cred_type: Option<&str>, favorites_only: bool) -> Result<Vec<CredentialMeta>> {
     let conn = pool.conn();
     let mut sql = String::from(
-        "SELECT id, cred_type, name, favorite, created_at, updated_at FROM credentials WHERE 1=1",
+        "SELECT id, cred_type, name, favorite, created_at, updated_at, search_index FROM credentials WHERE 1=1",
     );
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -84,6 +85,7 @@ pub fn list_credentials(pool: &DbPool, cred_type: Option<&str>, favorites_only: 
             id: row.get(0)?,
             cred_type: row.get(1)?,
             name: row.get(2)?,
+            search_index: row.get(6)?,
             favorite: row.get::<_, i32>(3)? != 0,
             created_at: row.get(4)?,
             updated_at: row.get(5)?,
@@ -124,13 +126,14 @@ pub fn search_credentials(pool: &DbPool, query: &str) -> Result<Vec<CredentialMe
     let conn = pool.conn();
     let pattern = format!("%{}%", query.to_lowercase());
     let mut stmt = conn.prepare(
-        "SELECT id, cred_type, name, favorite, created_at, updated_at FROM credentials WHERE LOWER(search_index) LIKE ?1 OR LOWER(name) LIKE ?1 ORDER BY updated_at DESC",
+        "SELECT id, cred_type, name, favorite, created_at, updated_at, search_index FROM credentials WHERE LOWER(search_index) LIKE ?1 OR LOWER(name) LIKE ?1 ORDER BY updated_at DESC",
     )?;
     let rows = stmt.query_map(params![pattern], |row| {
         Ok(CredentialMeta {
             id: row.get(0)?,
             cred_type: row.get(1)?,
             name: row.get(2)?,
+            search_index: row.get(6)?,
             favorite: row.get::<_, i32>(3)? != 0,
             created_at: row.get(4)?,
             updated_at: row.get(5)?,
@@ -192,16 +195,18 @@ pub fn match_credentials_by_url_and_user(
     )?;
     let rows: Vec<(CredentialMeta, String)> = stmt
         .query_map(params![domain_pattern], |row| {
+            let si: String = row.get(6)?;
             Ok((
                 CredentialMeta {
                     id: row.get(0)?,
                     cred_type: row.get(1)?,
                     name: row.get(2)?,
+                    search_index: si.clone(),
                     favorite: row.get::<_, i32>(3)? != 0,
                     created_at: row.get(4)?,
                     updated_at: row.get(5)?,
                 },
-                row.get::<_, String>(6)?,
+                si,
             ))
         })?
         .filter_map(|r| r.ok())
