@@ -431,6 +431,7 @@ fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -
             if let Some(handle) = handle_guard.as_ref() {
                 use tauri::Manager;
                 if let Some(window) = handle.get_webview_window("main") {
+                    let _ = window.show();
                     let _ = window.unminimize();
                     let _ = window.set_focus();
                 }
