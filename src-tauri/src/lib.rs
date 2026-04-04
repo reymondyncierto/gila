@@ -53,6 +53,11 @@ pub fn run() {
                 app_handle: handle,
             });
 
+            // Start hidden in the system tray
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.hide();
+            }
+
             // Build system tray menu
             let open_item = MenuItemBuilder::with_id("open", "Open Gila").build(app)?;
             let lock_item = MenuItemBuilder::with_id("lock", "Lock Vault").build(app)?;
