@@ -96,6 +96,7 @@ function onFormsDetected(forms) {
       const matches = response?.result || [];
       if (matches.length > 0) {
         attachInlineIcons(forms, matches);
+        showAutoFillBar(forms, matches);
       }
     }
   );
@@ -472,4 +473,238 @@ function showInlineDropdown(icon, credentials) {
   document.addEventListener('keydown', function esc(e) {
     if (e.key === 'Escape') { host.remove(); activeInlineDropdown = null; document.removeEventListener('keydown', esc); }
   });
+}
+
+// ===== Auto-Fill Bar =====
+// Appears automatically when matching credentials are found — no need to click the extension icon.
+
+let autoFillBarShown = false;
+
+function showAutoFillBar(forms, credentials) {
+  if (autoFillBarShown) return;
+  if (document.getElementById('gila-autofill-bar')) return;
+  autoFillBarShown = true;
+
+  const bar = document.createElement('div');
+  bar.id = 'gila-autofill-bar';
+
+  // Use Shadow DOM so page CSS can't interfere
+  const shadow = bar.attachShadow({ mode: 'closed' });
+
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes gilaSlideUp {
+      from { transform: translateY(100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes gilaFadeOut {
+      from { opacity: 1; }
+      to { opacity: 0; transform: translateY(10px); }
+    }
+    .bar {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 2147483647;
+      width: 320px;
+      background: #0f0f1a;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      animation: gilaSlideUp 0.35s ease-out;
+      overflow: hidden;
+    }
+    .bar.closing {
+      animation: gilaFadeOut 0.25s ease-in forwards;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px 8px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .logo {
+      width: 22px;
+      height: 22px;
+      background: linear-gradient(135deg, #4ade80, #22c55e);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 800;
+      color: #0f0f1a;
+    }
+    .title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .close-btn {
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.3);
+      font-size: 16px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .close-btn:hover {
+      color: rgba(255,255,255,0.6);
+      background: rgba(255,255,255,0.06);
+    }
+    .subtitle {
+      font-size: 11px;
+      color: rgba(255,255,255,0.35);
+      padding: 0 16px 8px;
+    }
+    .cred-list {
+      max-height: 180px;
+      overflow-y: auto;
+    }
+    .cred-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      cursor: pointer;
+      transition: background 0.15s;
+      border-top: 1px solid rgba(255,255,255,0.04);
+    }
+    .cred-item:hover {
+      background: rgba(74, 222, 128, 0.06);
+    }
+    .cred-icon {
+      width: 32px;
+      height: 32px;
+      background: rgba(74, 222, 128, 0.1);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .cred-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .cred-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cred-hint {
+      font-size: 11px;
+      color: rgba(255,255,255,0.35);
+    }
+    .fill-btn {
+      background: rgba(74, 222, 128, 0.15);
+      color: #4ade80;
+      border: 1px solid rgba(74, 222, 128, 0.25);
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .fill-btn:hover {
+      background: rgba(74, 222, 128, 0.25);
+    }
+  `;
+
+  const container = document.createElement('div');
+  container.className = 'bar';
+
+  const header = document.createElement('div');
+  header.className = 'header';
+  header.innerHTML = `
+    <div class="brand">
+      <div class="logo">G</div>
+      <span class="title">Gila</span>
+    </div>
+  `;
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'close-btn';
+  closeBtn.textContent = '\u2715';
+  closeBtn.addEventListener('click', () => dismissBar(container, bar));
+  header.appendChild(closeBtn);
+
+  const subtitle = document.createElement('div');
+  subtitle.className = 'subtitle';
+  subtitle.textContent = credentials.length === 1
+    ? 'Credential found for this site'
+    : `${credentials.length} credentials found for this site`;
+
+  const list = document.createElement('div');
+  list.className = 'cred-list';
+
+  for (const cred of credentials) {
+    const item = document.createElement('div');
+    item.className = 'cred-item';
+
+    const icon = document.createElement('div');
+    icon.className = 'cred-icon';
+    icon.textContent = '\uD83C\uDF10';
+
+    const info = document.createElement('div');
+    info.className = 'cred-info';
+    const displayName = cred.username || cred.name;
+    const hintText = cred.username ? cred.name : 'Login';
+    info.innerHTML = `<div class="cred-name">${escapeForHTML(displayName)}</div><div class="cred-hint">${escapeForHTML(hintText)}</div>`;
+
+    const fillBtn = document.createElement('button');
+    fillBtn.className = 'fill-btn';
+    fillBtn.textContent = 'Fill';
+    fillBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fillFromBar(cred.id, container, bar);
+    });
+
+    item.appendChild(icon);
+    item.appendChild(info);
+    item.appendChild(fillBtn);
+    item.addEventListener('click', () => fillFromBar(cred.id, container, bar));
+    list.appendChild(item);
+  }
+
+  container.appendChild(header);
+  container.appendChild(subtitle);
+  container.appendChild(list);
+  shadow.appendChild(style);
+  shadow.appendChild(container);
+
+  bar.style.cssText = 'position: fixed; bottom: 0; right: 0; z-index: 2147483647;';
+  document.body.appendChild(bar);
+
+  // Auto-dismiss after 30 seconds
+  setTimeout(() => {
+    if (bar.parentNode) dismissBar(container, bar);
+  }, 30000);
+}
+
+function fillFromBar(credId, container, bar) {
+  chrome.runtime.sendMessage({ type: 'get_credential', id: credId }, (res) => {
+    if (res?.result?.data) {
+      fillCredential(res.result.data.username || '', res.result.data.password || '');
+      dismissBar(container, bar);
+    }
+  });
+}
+
+function dismissBar(container, bar) {
+  container.classList.add('closing');
+  setTimeout(() => { if (bar.parentNode) bar.remove(); }, 250);
 }
