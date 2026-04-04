@@ -210,11 +210,31 @@ function attachSaveDetection(forms) {
     if (passwordField.dataset.gilaSave) continue;
     passwordField.dataset.gilaSave = 'true';
 
-    // Capture credentials as the user types and persist to storage
-    // This ensures we have the data even if the page navigates away instantly
+    // Capture credentials as the user types and persist to chrome.storage.session.
+    // The background script will auto-save when the page navigates away.
+    // No prompts, no banners — fully automatic.
     passwordField.addEventListener('input', () => {
       lastTypedPassword = passwordField.value;
       if (lastTypedPassword) {
+        const username = usernameField?.value || lastTypedUsername || findUsernameOnPage() || '';
+        console.log('[Gila] Password typed, persisting to storage. Username:', username || '(scanning page...)');
+        chrome.storage.session.set({
+          pendingCredential: {
+            username,
+            password: lastTypedPassword,
+            url: window.location.href,
+            hostname: window.location.hostname,
+            name: document.title || window.location.hostname,
+            timestamp: Date.now(),
+          }
+        }).catch(() => {});
+      }
+    });
+
+    // Also capture on keyup (some sites don't fire input properly)
+    passwordField.addEventListener('keyup', () => {
+      if (passwordField.value && passwordField.value !== lastTypedPassword) {
+        lastTypedPassword = passwordField.value;
         const username = usernameField?.value || lastTypedUsername || findUsernameOnPage() || '';
         chrome.storage.session.set({
           pendingCredential: {
@@ -228,79 +248,12 @@ function attachSaveDetection(forms) {
         }).catch(() => {});
       }
     });
+
     if (usernameField) {
       usernameField.addEventListener('input', () => {
         lastTypedUsername = usernameField.value;
       });
     }
-
-    const handler = () => {
-      if (savePromptShown) return;
-
-      // Get username from: input field > last typed > page text (for multi-step like Google)
-      const username = usernameField?.value || lastTypedUsername || findUsernameOnPage() || '';
-      const password = passwordField?.value || lastTypedPassword || '';
-
-      console.log('[Gila] Save handler triggered — username:', username ? `"${username}"` : 'empty', 'password:', password ? 'filled' : 'empty');
-      if (!password) return;
-
-      savePromptShown = true;
-
-      // Pass username so the lookup can check if THIS specific account is already saved
-      chrome.runtime.sendMessage(
-        { type: 'lookup', url: window.location.href, username },
-        (response) => {
-          console.log('[Gila] Lookup response:', response);
-          const existing = response?.result || [];
-          // Check if this specific username already exists (not just any credential for this domain)
-          const alreadySaved = existing.some(c =>
-            c.username && username && c.username.toLowerCase() === username.toLowerCase()
-          );
-          if (alreadySaved) {
-            console.log('[Gila] This account already saved, skipping save prompt');
-            savePromptShown = false;
-            return;
-          }
-          console.log('[Gila] Showing save banner');
-          showSaveBanner(username, password);
-        }
-      );
-    };
-
-    // 1. Native form submit
-    if (form) {
-      form.addEventListener('submit', () => setTimeout(handler, 100));
-    }
-
-    // 2. Click on ANY button on the page (login buttons vary wildly across sites)
-    document.addEventListener('click', (e) => {
-      const target = e.target.closest('button, [role="button"], input[type="submit"], a');
-      if (!target) return;
-      // Only trigger if password field has been filled
-      if (!passwordField.value && !lastTypedPassword) return;
-      setTimeout(handler, 300);
-    }, { capture: true });
-
-    // 3. Enter key in the password field
-    passwordField.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') setTimeout(handler, 300);
-    });
-
-    // 4. Catch page navigation — send to background for auto-save
-    window.addEventListener('beforeunload', () => {
-      const username = usernameField?.value || lastTypedUsername || findUsernameOnPage() || '';
-      const password = passwordField?.value || lastTypedPassword || '';
-      if (password && !savePromptShown) {
-        console.log('[Gila] Page navigating with credentials, sending pending_save');
-        chrome.runtime.sendMessage({
-          type: 'pending_save',
-          name: document.title || window.location.hostname,
-          url: window.location.href,
-          username,
-          password,
-        }).catch(() => {});
-      }
-    });
   }
 }
 

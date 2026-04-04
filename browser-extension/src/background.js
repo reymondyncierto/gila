@@ -8,31 +8,30 @@ const bridge = new GilaBridge();
 // Start: discover and connect
 bridge.discover();
 
-// Watch for tab navigation — when a user leaves a login page after typing credentials,
-// check storage for pending credentials and auto-save them
+// Auto-save: whenever ANY tab finishes loading, check if there's a pending credential
+// and save it immediately — no prompts, no conditions
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (changeInfo.status !== 'complete') return;
-  if (!bridge.isConnected) return;
 
   try {
     const data = await chrome.storage.session.get('pendingCredential');
-    const cred = data.pendingCredential;
-    if (!cred) return;
+    const cred = data?.pendingCredential;
+    if (!cred || !cred.password) return;
 
-    // Only process if less than 60 seconds old
-    if (Date.now() - cred.timestamp > 60000) {
+    // Only process if less than 2 minutes old
+    if (Date.now() - cred.timestamp > 120000) {
       chrome.storage.session.remove('pendingCredential');
       return;
     }
 
-    // Get the current tab's URL to see if we navigated away from the login page
-    const tab = await chrome.tabs.get(tabId);
-    if (!tab?.url) return;
+    // Wait for bridge to be connected
+    if (!bridge.isConnected) {
+      // Try to connect, will retry on next tab update
+      bridge.discover();
+      return;
+    }
 
-    // If we're still on the same login page, don't save yet
-    if (tab.url.includes('signin') || tab.url.includes('login') || tab.url.includes('auth')) return;
-
-    console.log('[Gila] Tab navigated after login — auto-saving credential for', cred.username);
+    console.log('[Gila] Auto-saving credential for', cred.username || cred.hostname);
 
     const result = await bridge.send({
       method: 'save_credential',
@@ -43,15 +42,53 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
     });
 
     if (result?.result) {
-      console.log('[Gila] Auto-saved credential:', result.result.name);
+      console.log('[Gila] Saved:', result.result.name, result.result.id);
+    } else {
+      console.log('[Gila] Save response:', result);
     }
 
-    // Clear pending credential
+    // Clear it immediately after saving
     chrome.storage.session.remove('pendingCredential');
   } catch (e) {
-    console.log('[Gila] Error checking pending credential:', e);
+    console.log('[Gila] Error:', e);
   }
 });
+
+// Also check on a short interval in case tabs.onUpdated doesn't fire
+setInterval(async () => {
+  if (!bridge.isConnected) return;
+
+  try {
+    const data = await chrome.storage.session.get('pendingCredential');
+    const cred = data?.pendingCredential;
+    if (!cred || !cred.password) return;
+
+    if (Date.now() - cred.timestamp > 120000) {
+      chrome.storage.session.remove('pendingCredential');
+      return;
+    }
+
+    // If credential has been sitting for more than 5 seconds, save it
+    // (means the page already navigated)
+    if (Date.now() - cred.timestamp > 5000) {
+      console.log('[Gila] Interval: auto-saving credential for', cred.username || cred.hostname);
+
+      const result = await bridge.send({
+        method: 'save_credential',
+        name: cred.name,
+        url: cred.url,
+        username: cred.username,
+        password: cred.password,
+      });
+
+      if (result?.result) {
+        console.log('[Gila] Saved:', result.result.name);
+      }
+
+      chrome.storage.session.remove('pendingCredential');
+    }
+  } catch {}
+}, 3000);
 
 // Listen for messages from content scripts and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -114,10 +151,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           url: request.url,
           username: request.username,
           password: request.password,
-        }).then((result) => {
-          if (result?.result) {
-            console.log('[Gila] Auto-saved credential from page navigation:', request.name);
-          }
         });
       }
       sendResponse({ ok: true });
