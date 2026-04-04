@@ -140,6 +140,60 @@ pub fn search_credentials(pool: &DbPool, query: &str) -> Result<Vec<CredentialMe
     rows.collect()
 }
 
+/// Extract the registrable domain from a URL string.
+/// e.g., "https://accounts.google.com/signin" → "google.com"
+///       "https://github.com/login" → "github.com"
+pub fn extract_domain(url: &str) -> Option<String> {
+    // Strip scheme
+    let without_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+
+    // Get host (before first / or end)
+    let host = without_scheme.split('/').next()?;
+    // Strip port
+    let host = host.split(':').next()?;
+
+    if host.is_empty() {
+        return None;
+    }
+
+    let parts: Vec<&str> = host.split('.').collect();
+    if parts.len() >= 2 {
+        // Return last two parts as the registrable domain
+        Some(format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1]))
+    } else {
+        Some(host.to_string())
+    }
+}
+
+/// Find login credentials whose search_index contains a matching domain.
+pub fn match_credentials_by_url(pool: &DbPool, url: &str) -> Result<Vec<CredentialMeta>> {
+    let domain = match extract_domain(url) {
+        Some(d) => d,
+        None => return Ok(vec![]),
+    };
+
+    let pattern = format!("%{}%", domain.to_lowercase());
+    let conn = pool.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, cred_type, name, favorite, created_at, updated_at FROM credentials WHERE cred_type = 'login' AND (LOWER(search_index) LIKE ?1 OR LOWER(name) LIKE ?1) ORDER BY updated_at DESC",
+    )?;
+    let rows = stmt.query_map(params![pattern], |row| {
+        Ok(CredentialMeta {
+            id: row.get(0)?,
+            cred_type: row.get(1)?,
+            name: row.get(2)?,
+            favorite: row.get::<_, i32>(3)? != 0,
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
+        })
+    })?;
+
+    rows.collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,6 +285,36 @@ mod tests {
 
         let results = search_credentials(&pool, "example").unwrap();
         assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_domain() {
+        assert_eq!(extract_domain("https://accounts.google.com/signin"), Some("google.com".to_string()));
+        assert_eq!(extract_domain("https://github.com/login"), Some("github.com".to_string()));
+        assert_eq!(extract_domain("http://mail.yahoo.com"), Some("yahoo.com".to_string()));
+        assert_eq!(extract_domain("https://example.com:8080/path"), Some("example.com".to_string()));
+        assert_eq!(extract_domain("https://localhost"), Some("localhost".to_string()));
+        assert_eq!(extract_domain(""), None);
+    }
+
+    #[test]
+    fn test_match_credentials_by_url() {
+        let pool = test_pool();
+        create_credential(&pool, "1", "login", "Gmail", "gmail google.com user@gmail.com", b"data").unwrap();
+        create_credential(&pool, "2", "login", "GitHub", "github github.com dev@example.com", b"data").unwrap();
+        create_credential(&pool, "3", "wifi", "Home WiFi", "home wifi", b"data").unwrap();
+
+        let results = match_credentials_by_url(&pool, "https://accounts.google.com/signin").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "Gmail");
+
+        let results = match_credentials_by_url(&pool, "https://github.com/login").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "GitHub");
+
+        // Wi-Fi should NOT match even if search_index matches
+        let results = match_credentials_by_url(&pool, "https://wifi.com").unwrap();
+        assert_eq!(results.len(), 0);
     }
 
     #[test]

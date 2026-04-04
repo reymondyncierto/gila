@@ -197,3 +197,23 @@ pub fn toggle_favorite(
     db::toggle_favorite(&state.db, &id)?;
     Ok(())
 }
+
+#[tauri::command]
+pub fn match_credentials_by_url(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<Vec<CredentialListItem>, VaultError> {
+    let rows = db::match_credentials_by_url(&state.db, &url)?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| CredentialListItem {
+            id: r.id,
+            cred_type: r.cred_type,
+            name: r.name,
+            favorite: r.favorite,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        })
+        .collect())
+}

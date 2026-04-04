@@ -41,6 +41,7 @@ pub fn run() {
             commands::vault::get_credential,
             commands::vault::search_credentials,
             commands::vault::toggle_favorite,
+            commands::vault::match_credentials_by_url,
             commands::init::initialize_vault,
             commands::init::verify_master_password,
             commands::init::is_vault_setup,
