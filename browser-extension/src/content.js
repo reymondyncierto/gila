@@ -70,6 +70,43 @@ const savedFormRefs = new WeakSet();
 let savePromptShown = false;
 let activeInlineDropdown = null;
 
+const LOOKUP_MAX_RETRIES = 5;
+const LOOKUP_RETRY_DELAY = 2000; // 2 seconds between retries
+
+function doLookup(forms, detectedUser, attempt) {
+  chrome.runtime.sendMessage(
+    { type: 'lookup', url: window.location.href, username: detectedUser },
+    (response) => {
+      // Bridge not connected yet — retry after a delay
+      if (response?.error === 'not_connected' || response?.error === 'disconnected' || response?.error === 'timeout') {
+        if (attempt < LOOKUP_MAX_RETRIES) {
+          setTimeout(() => doLookup(forms, detectedUser, attempt + 1), LOOKUP_RETRY_DELAY);
+        }
+        return;
+      }
+
+      if (response?.error === 'vault_locked') {
+        showLockedBanner();
+        return;
+      }
+
+      let matches = response?.result || [];
+
+      if (detectedUser) {
+        const userLower = detectedUser.toLowerCase();
+        matches = matches.filter(c =>
+          c.username && c.username.toLowerCase() === userLower
+        );
+      }
+
+      if (matches.length > 0) {
+        attachInlineIcons(forms, matches);
+        showAutoFillBar(forms, matches);
+      }
+    }
+  );
+}
+
 function onFormsDetected(forms) {
   detectedForms = forms;
   const pageEmail = findUsernameOnPage();
@@ -93,32 +130,7 @@ function onFormsDetected(forms) {
   // Only show credentials matching the email currently on the page
   const detectedUser = forms[0]?.usernameField?.value || findUsernameOnPage() || '';
   console.log('[Gila] Detected user on page:', detectedUser || '(none)');
-  chrome.runtime.sendMessage(
-    { type: 'lookup', url: window.location.href, username: detectedUser },
-    (response) => {
-      // If the vault is locked, show a prompt to unlock
-      if (response?.error === 'vault_locked') {
-        showLockedBanner();
-        return;
-      }
-
-      let matches = response?.result || [];
-
-      // Filter: only show credentials whose username matches the email on the page
-      // If email is detected but no credential matches it, show NOTHING (not wrong suggestions)
-      if (detectedUser) {
-        const userLower = detectedUser.toLowerCase();
-        matches = matches.filter(c =>
-          c.username && c.username.toLowerCase() === userLower
-        );
-      }
-
-      if (matches.length > 0) {
-        attachInlineIcons(forms, matches);
-        showAutoFillBar(forms, matches);
-      }
-    }
-  );
+  doLookup(forms, detectedUser, 0);
 }
 
 // Initial scan
