@@ -13,6 +13,33 @@ use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 
+/// Install an XDG autostart desktop entry so Gila starts on login.
+/// Writes to ~/.config/autostart/gila.desktop. Runs on every launch
+/// so it stays up to date if the binary path changes.
+fn install_autostart() {
+    let Some(home) = dirs::home_dir() else { return };
+    let autostart_dir = home.join(".config/autostart");
+    std::fs::create_dir_all(&autostart_dir).ok();
+
+    let exe_path = std::env::current_exe().unwrap_or_default();
+    let exe_str = exe_path.display();
+
+    let desktop_entry = format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name=Gila\n\
+         Comment=The Apex Vault — Password Manager\n\
+         Exec={exe_str}\n\
+         Terminal=false\n\
+         StartupNotify=false\n\
+         X-GNOME-Autostart-enabled=true\n\
+         X-GNOME-Autostart-Delay=3\n"
+    );
+
+    let path = autostart_dir.join("gila.desktop");
+    std::fs::write(&path, desktop_entry).ok();
+}
+
 /// Show a hidden window and reload the webview so it doesn't display a
 /// stale "connection refused" page from when it was created while hidden.
 fn show_window(window: &tauri::WebviewWindow) {
@@ -64,6 +91,9 @@ pub fn run() {
                 pending_credentials: pending,
                 app_handle: handle,
             });
+
+            // Install XDG autostart entry so the app starts on login
+            install_autostart();
 
             // Start hidden in the system tray
             if let Some(window) = app.get_webview_window("main") {
