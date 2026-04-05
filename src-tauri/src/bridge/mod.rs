@@ -426,6 +426,24 @@ fn handle_message(method: &str, request: &serde_json::Value, state: &AppState) -
             }
         }
 
+        "unlock" => {
+            let password = request["password"].as_str().unwrap_or("");
+            if password.is_empty() {
+                return r#"{"error":"password_required"}"#.to_string();
+            }
+
+            match crate::commands::init::verify_master_password_inner(state, password) {
+                Ok(_) => {
+                    let mut auth = state.auth.lock().expect("auth mutex poisoned");
+                    auth.unlock();
+                    drop(auth);
+                    crate::commands::auth::process_pending_credentials(state);
+                    r#"{"result":"ok"}"#.to_string()
+                }
+                Err(_) => r#"{"error":"invalid_password"}"#.to_string(),
+            }
+        }
+
         "focus_app" => {
             let handle_guard = state.app_handle.lock().expect("app_handle mutex poisoned");
             if let Some(handle) = handle_guard.as_ref() {

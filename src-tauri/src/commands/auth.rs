@@ -65,7 +65,7 @@ pub fn unlock_vault(
 }
 
 /// Encrypt and save credentials that were queued by the bridge while the vault was locked.
-fn process_pending_credentials(state: &AppState) {
+pub fn process_pending_credentials(state: &AppState) {
     let pending: Vec<crate::state::PendingCredential> = {
         let mut queue = state.pending_credentials.lock().expect("pending mutex poisoned");
         queue.drain(..).collect()
