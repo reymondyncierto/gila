@@ -396,12 +396,23 @@ cd src-tauri && cargo build  # Rust backend
 
 The app starts hidden in the system tray. Double-click the tray icon or use the tray menu to open the window.
 
-### Build for Production
+### Build & Install
+
+Build the production packages:
 
 ```bash
-# Build distributable binary
 npm run tauri build
 ```
+
+This produces three installable packages in `src-tauri/target/release/bundle/`:
+
+| File | Format | Install | Uninstall |
+|---|---|---|---|
+| `bundle/deb/Gila_0.1.0_amd64.deb` | Ubuntu / Debian | `sudo dpkg -i Gila_0.1.0_amd64.deb` | `sudo dpkg -r gila` |
+| `bundle/rpm/Gila-0.1.0-1.x86_64.rpm` | Fedora / RHEL | `sudo rpm -i Gila-0.1.0-1.x86_64.rpm` | `sudo rpm -e gila` |
+| `bundle/appimage/Gila_0.1.0_amd64.AppImage` | Any Linux | `chmod +x Gila_*.AppImage && ./Gila_*.AppImage` | Just delete the file |
+
+On install (.deb/.rpm), a `postinst` script automatically creates an XDG autostart entry at `~/.config/autostart/gila.desktop` so the app starts silently in the system tray on login. On uninstall, a `prerm` script removes it.
 
 ### Run Tests
 
