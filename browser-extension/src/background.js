@@ -57,6 +57,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
       return true;
 
+    case 'unlock':
+      bridge.send({ method: 'unlock', password: request.password }).then(sendResponse);
+      return true;
+
     case 'focus_app':
       bridge.send({ method: 'focus_app' }).then(sendResponse);
       return true;
