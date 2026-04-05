@@ -105,13 +105,11 @@ Gila runs as a background service in the system tray. The window is hidden on st
 
 ### Autostart
 
-On Linux, an XDG autostart entry starts the dev environment on login:
+Gila automatically starts on login — no manual configuration needed:
 
-```
-~/.config/autostart/gila.desktop → scripts/start-dev.sh → npm run tauri dev
-```
-
-The `scripts/start-dev.sh` script sets up PATH (nvm + cargo) and runs the Tauri dev server in the background. Logs are written to `/tmp/gila-dev.log`.
+- **On package install** (.deb/.rpm): A `postinst` script creates `~/.config/autostart/gila.desktop` pointing to `/usr/bin/gila`. On uninstall, a `prerm` script removes it.
+- **On every launch**: The app also writes the autostart entry at runtime via `install_autostart()` in `lib.rs`, keeping the path up to date if the binary location changes.
+- **For development**: `scripts/start-dev.sh` can be used to autostart `npm run tauri dev` instead of the production binary.
 
 ---
 
@@ -124,15 +122,18 @@ When the vault is locked, the browser extension can still save credentials. They
 1. Extension detects a form submission and sends `save_credential` to the bridge
 2. Bridge detects the vault is locked, queues the credential as a `PendingCredential` in memory
 3. Bridge returns `{"result": {"name": "...", "queued": true}}`
-4. Extension shows a **"Credential queued — Gila is locked"** banner with an **"Open Gila"** button
-5. User opens Gila and unlocks the vault
-6. `unlock_vault` processes the pending queue — encrypts each credential and saves to the database
+4. Extension shows a **"Credential queued"** banner with an inline password field
+5. User types master password in the banner and clicks **Unlock**
+6. Extension sends `unlock` to the bridge, which verifies the password, unlocks the vault, and processes the pending queue
 
 ### Locked-Page Detection
 
-When the extension detects a login form but the vault is locked, it shows a bottom-right popup:
-- "Gila is locked — Unlock your vault to autofill credentials on this page"
-- **"Open Gila & Unlock"** button focuses the app window via the bridge
+When the extension detects a login form but the vault is locked, it shows a bottom-right popup with an inline unlock form:
+- "Gila is locked — Enter your master password to autofill"
+- A password input + **Unlock** button (unlocks via the bridge `unlock` command)
+- On success, the banner dismisses and autofill suggestions load automatically
+- On wrong password, an inline error appears and the field clears
+- If the bridge is not yet connected (browser just started), the extension retries up to 5 times with 2-second intervals before giving up
 
 ### What's Blocked When Locked
 
@@ -194,6 +195,7 @@ The Gila browser extension integrates directly with the desktop app to auto-dete
 │  │  ├─ lookup    — find credentials by URL (blocked if locked)    │
 │  │  ├─ get_credential — decrypt and return (blocked if locked)    │
 │  │  ├─ save_credential — encrypt and store (queued if locked)     │
+│  │  ├─ unlock    — unlock vault from extension with password      │
 │  │  ├─ focus_app — show and focus the app window                  │
 │  │  └─ status    — check vault lock state                         │
 │  └─ Credential saves are queued when locked, processed on unlock  │
@@ -301,6 +303,9 @@ gila/
 ├── src-tauri/                      # Rust backend
 │   ├── Cargo.toml                  # Rust dependencies (includes tray-icon feature)
 │   ├── tauri.conf.json             # Tauri config (window starts hidden)
+│   ├── scripts/
+│   │   ├── postinst.sh             # Deb/rpm post-install — creates autostart entry
+│   │   └── prerm.sh                # Deb/rpm pre-remove — removes autostart entry
 │   ├── src/
 │   │   ├── lib.rs                  # App setup, tray menu, window management
 │   │   ├── main.rs                 # Binary entry point
@@ -502,6 +507,12 @@ All messages are JSON. The first message must be `auth`:
 <- { "result": { "id": "new-uuid", "name": "GitHub" } }
 // or when locked:
 <- { "result": { "name": "GitHub", "queued": true } }
+
+// Unlock vault from extension (processes pending queue on success)
+-> { "method": "unlock", "password": "master-password-here" }
+<- { "result": "ok" }
+// or on wrong password:
+<- { "error": "invalid_password" }
 
 // Focus the app window (show + reload if needed)
 -> { "method": "focus_app" }
