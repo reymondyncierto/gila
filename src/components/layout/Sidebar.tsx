@@ -83,11 +83,7 @@ export default function Sidebar({ selected, onSelect }: SidebarProps) {
     <aside className="w-60 h-full flex flex-col bg-white border-r border-slate-200">
       <div className="px-5 pt-6 pb-4">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-400 to-blue-500 flex items-center justify-center shadow-sm">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
-          </div>
+          <img src="/icon.png" alt="Gila" className="w-8 h-8 rounded-lg shadow-sm" />
           <div>
             <h1 className="text-base font-semibold text-slate-900 leading-tight">Gila</h1>
             <p className="text-[11px] text-slate-400 leading-tight">Password Manager</p>
