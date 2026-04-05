@@ -137,8 +137,8 @@ export class GilaBridge {
     if (this._reconnectTimer) return; // Already scheduled
 
     this._reconnectAttempt++;
-    // Fast reconnect: 1s, 2s, 3s, 5s, then 5s forever
-    const delays = [1000, 2000, 3000, 5000];
+    // Fast reconnect: 300ms, 500ms, 1s, 2s, then 3s forever
+    const delays = [300, 500, 1000, 2000, 3000];
     const delay = delays[Math.min(this._reconnectAttempt - 1, delays.length - 1)];
 
     this._reconnectTimer = setTimeout(async () => {
@@ -194,7 +194,7 @@ export class GilaBridge {
           this.pendingRequests.delete(id);
           resolve({ error: 'timeout' });
         }
-      }, 5000);
+      }, 3000);
     });
   }
 

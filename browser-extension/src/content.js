@@ -70,8 +70,8 @@ const savedFormRefs = new WeakSet();
 let savePromptShown = false;
 let activeInlineDropdown = null;
 
-const LOOKUP_MAX_RETRIES = 5;
-const LOOKUP_RETRY_DELAY = 2000; // 2 seconds between retries
+const LOOKUP_MAX_RETRIES = 8;
+const LOOKUP_RETRY_DELAY = 500; // 500ms between retries
 
 function doLookup(forms, detectedUser, attempt) {
   chrome.runtime.sendMessage(
@@ -149,7 +149,7 @@ const observer = new MutationObserver(() => {
   debounceTimer = setTimeout(() => {
     const forms = detectLoginForms();
     if (forms.length > 0) onFormsDetected(forms);
-  }, 500);
+  }, 150);
 });
 observer.observe(document.body, { childList: true, subtree: true });
 
