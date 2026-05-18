@@ -10,6 +10,11 @@ export type Category =
 interface SidebarProps {
   selected: Category;
   onSelect: (category: Category) => void;
+  onLock: () => void;
+  onToggleTrustedSession: () => void;
+  trustedSessionAvailable: boolean;
+  trustedSessionEnabled: boolean;
+  trustedSessionBusy: boolean;
 }
 
 const categories: { key: Category; label: string; icon: React.ReactNode }[] = [
@@ -78,7 +83,15 @@ const categories: { key: Category; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
-export default function Sidebar({ selected, onSelect }: SidebarProps) {
+export default function Sidebar({
+  selected,
+  onSelect,
+  onLock,
+  onToggleTrustedSession,
+  trustedSessionAvailable,
+  trustedSessionEnabled,
+  trustedSessionBusy,
+}: SidebarProps) {
   return (
     <aside className="w-60 h-full flex flex-col bg-white border-r border-slate-200">
       <div className="px-5 pt-6 pb-4">
@@ -110,7 +123,47 @@ export default function Sidebar({ selected, onSelect }: SidebarProps) {
         ))}
       </nav>
 
-      <div className="px-4 py-3 border-t border-slate-100">
+      <div className="px-4 py-3 border-t border-slate-100 space-y-3">
+        <button
+          type="button"
+          onClick={onLock}
+          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+        >
+          Lock Vault
+        </button>
+
+        {trustedSessionAvailable && (
+          <button
+            type="button"
+            onClick={onToggleTrustedSession}
+            disabled={trustedSessionBusy}
+            aria-pressed={trustedSessionEnabled}
+            className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
+              trustedSessionEnabled
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+            } ${trustedSessionBusy ? "opacity-70 cursor-not-allowed" : ""}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Trusted Linux session</p>
+                <p className="text-[11px] text-current/70 leading-tight">
+                  Unlock after desktop login
+                </p>
+              </div>
+              <span
+                className={`mt-0.5 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  trustedSessionEnabled
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-slate-200 text-slate-600"
+                }`}
+              >
+                {trustedSessionEnabled ? "On" : "Off"}
+              </span>
+            </div>
+          </button>
+        )}
+
         <p className="text-[11px] text-slate-300 text-center">Gila v1.0</p>
       </div>
     </aside>

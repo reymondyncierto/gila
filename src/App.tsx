@@ -9,21 +9,52 @@ type AppScreen = "loading" | "onboarding" | "locked" | "main";
 interface LockStateResult {
   locked: boolean;
   vault_initialized: boolean;
+  trusted_session_available: boolean;
+  trusted_session_enabled: boolean;
 }
 
 function App() {
   const [screen, setScreen] = useState<AppScreen>("loading");
 
   useEffect(() => {
-    invoke<LockStateResult>("get_lock_state").then((result) => {
-      if (!result.vault_initialized) {
-        setScreen("onboarding");
-      } else if (result.locked) {
+    let cancelled = false;
+
+    async function initializeScreen() {
+      try {
+        const result = await invoke<LockStateResult>("get_lock_state");
+
+        if (cancelled) return;
+
+        if (!result.vault_initialized) {
+          setScreen("onboarding");
+          return;
+        }
+
+        if (!result.locked) {
+          setScreen("main");
+          return;
+        }
+
+        if (result.trusted_session_available && result.trusted_session_enabled) {
+          const unlocked = await invoke<boolean>("attempt_trusted_session_unlock");
+          if (cancelled) return;
+          setScreen(unlocked ? "main" : "locked");
+          return;
+        }
+
         setScreen("locked");
-      } else {
-        setScreen("main");
+      } catch {
+        if (!cancelled) {
+          setScreen("locked");
+        }
       }
-    });
+    }
+
+    initializeScreen();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Periodically check lock state for auto-lock
@@ -81,7 +112,7 @@ function App() {
     return <LockScreen onUnlock={() => setScreen("main")} />;
   }
 
-  return <AppLayout />;
+  return <AppLayout onLock={() => setScreen("locked")} />;
 }
 
 export default App;

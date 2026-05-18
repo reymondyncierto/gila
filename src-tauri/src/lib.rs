@@ -9,9 +9,9 @@ pub mod state;
 
 use state::AppState;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
+use tauri::Manager;
 
 /// Install an XDG autostart desktop entry so Gila starts on login.
 /// Writes to ~/.config/autostart/gila.desktop. Runs on every launch
@@ -116,28 +116,26 @@ pub fn run() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&tray_menu)
                 .tooltip("Gila — Password Manager")
-                .on_menu_event(|app, event| {
-                    match event.id().as_ref() {
-                        "open" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                show_window(&window);
-                            }
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "open" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            show_window(&window);
                         }
-                        "lock" => {
-                            let state = app.state::<AppState>();
-                            let mut auth = state.auth.lock().expect("auth mutex poisoned");
-                            auth.lock();
-                            let mut key = state.key.lock().expect("key mutex poisoned");
-                            *key = None;
-                            if let Some(window) = app.get_webview_window("main") {
-                                show_window(&window);
-                            }
-                        }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
                     }
+                    "lock" => {
+                        let state = app.state::<AppState>();
+                        let mut auth = state.auth.lock().expect("auth mutex poisoned");
+                        auth.lock();
+                        let mut key = state.key.lock().expect("key mutex poisoned");
+                        *key = None;
+                        if let Some(window) = app.get_webview_window("main") {
+                            show_window(&window);
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
@@ -173,6 +171,10 @@ pub fn run() {
             commands::generator::generate_password,
             commands::clipboard::copy_to_clipboard,
             commands::auth::get_lock_state,
+            commands::auth::get_trusted_session_status,
+            commands::auth::enable_trusted_session_auto_unlock,
+            commands::auth::disable_trusted_session_auto_unlock,
+            commands::auth::attempt_trusted_session_unlock,
             commands::auth::lock_vault,
             commands::auth::unlock_vault,
             commands::auth::touch_activity,
