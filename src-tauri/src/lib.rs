@@ -125,7 +125,7 @@ pub fn run() {
                     "lock" => {
                         let state = app.state::<AppState>();
                         let mut auth = state.auth.lock().expect("auth mutex poisoned");
-                        auth.lock();
+                        auth.lock_manual();
                         let mut key = state.key.lock().expect("key mutex poisoned");
                         *key = None;
                         if let Some(window) = app.get_webview_window("main") {

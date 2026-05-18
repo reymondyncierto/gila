@@ -5,6 +5,7 @@ const GRACE_PERIOD_SECS: u64 = 30;
 
 pub struct AuthState {
     locked: bool,
+    manual_lock: bool,
     last_activity: Instant,
     last_auth: Option<Instant>,
 }
@@ -13,6 +14,7 @@ impl AuthState {
     pub fn new() -> Self {
         Self {
             locked: true,
+            manual_lock: false,
             last_activity: Instant::now(),
             last_auth: None,
         }
@@ -24,13 +26,23 @@ impl AuthState {
 
     pub fn unlock(&mut self) {
         self.locked = false;
+        self.manual_lock = false;
         self.last_activity = Instant::now();
         self.last_auth = Some(Instant::now());
     }
 
-    pub fn lock(&mut self) {
+    pub fn lock_manual(&mut self) {
         self.locked = true;
+        self.manual_lock = true;
         self.last_auth = None;
+    }
+
+    pub fn clear_manual_lock(&mut self) {
+        self.manual_lock = false;
+    }
+
+    pub fn is_manual_lock(&self) -> bool {
+        self.manual_lock
     }
 
     pub fn touch(&mut self) {
@@ -38,6 +50,7 @@ impl AuthState {
     }
 
     pub fn record_auth(&mut self) {
+        self.manual_lock = false;
         self.last_auth = Some(Instant::now());
     }
 

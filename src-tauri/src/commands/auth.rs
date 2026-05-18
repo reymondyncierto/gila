@@ -8,6 +8,7 @@ use crate::state::AppState;
 
 const TRUSTED_SESSION_SERVICE: &str = "com.rpyncierto.gila";
 const TRUSTED_SESSION_USER: &str = "gila-trusted-linux-session";
+const VAULT_VERIFICATION_TOKEN: &[u8] = b"GILA_VAULT_VERIFICATION_v1";
 
 #[derive(Debug, Serialize)]
 pub struct LockState {
@@ -23,24 +24,12 @@ pub struct TrustedSessionStatus {
     pub enabled: bool,
 }
 
-fn trusted_session_status() -> TrustedSessionStatus {
+fn trusted_session_available() -> bool {
     if !cfg!(target_os = "linux") {
-        return TrustedSessionStatus {
-            available: false,
-            enabled: false,
-        };
+        return false;
     }
 
-    match keyring::Entry::new(TRUSTED_SESSION_SERVICE, TRUSTED_SESSION_USER) {
-        Ok(entry) => TrustedSessionStatus {
-            available: true,
-            enabled: entry.get_password().is_ok(),
-        },
-        Err(_) => TrustedSessionStatus {
-            available: false,
-            enabled: false,
-        },
-    }
+    keyring::Entry::new(TRUSTED_SESSION_SERVICE, TRUSTED_SESSION_USER).is_ok()
 }
 
 fn trusted_session_entry() -> Result<keyring::Entry, String> {
@@ -51,10 +40,74 @@ fn trusted_session_entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new(TRUSTED_SESSION_SERVICE, TRUSTED_SESSION_USER).map_err(|e| e.to_string())
 }
 
+fn trusted_session_status(state: &AppState) -> TrustedSessionStatus {
+    let available = trusted_session_available();
+    if !available {
+        return TrustedSessionStatus {
+            available: false,
+            enabled: false,
+        };
+    }
+
+    let enabled = match trusted_session_entry() {
+        Ok(entry) => match entry.get_password() {
+            Ok(password) => trusted_session_secret_valid(state, &password),
+            Err(_) => false,
+        },
+        Err(_) => false,
+    };
+
+    TrustedSessionStatus {
+        available,
+        enabled,
+    }
+}
+
+fn trusted_session_secret_valid(state: &AppState, master_password: &str) -> bool {
+    let conn = state.db.conn();
+
+    let salt_bytes: Vec<u8> = match conn.query_row(
+        "SELECT value FROM vault_meta WHERE key = 'salt'",
+        [],
+        |row| row.get(0),
+    ) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+
+    let verification: Vec<u8> = match conn.query_row(
+        "SELECT value FROM vault_meta WHERE key = 'verification'",
+        [],
+        |row| row.get(0),
+    ) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+
+    drop(conn);
+
+    if salt_bytes.len() != 16 {
+        return false;
+    }
+
+    let mut salt = [0u8; 16];
+    salt.copy_from_slice(&salt_bytes);
+
+    let key = match crypto::derive_key(master_password.as_bytes(), &salt) {
+        Ok(key) => key,
+        Err(_) => return false,
+    };
+
+    match crypto::decrypt(key.as_bytes(), &verification) {
+        Ok(plaintext) => plaintext == VAULT_VERIFICATION_TOKEN,
+        Err(_) => false,
+    }
+}
+
 #[tauri::command]
 pub fn get_lock_state(state: State<'_, AppState>) -> LockState {
     let mut auth = state.auth.lock().expect("auth mutex poisoned");
-    let trusted_session = trusted_session_status();
+    let trusted_session = trusted_session_status(&state);
     if !trusted_session.enabled {
         auth.check_inactivity();
     }
@@ -86,8 +139,8 @@ pub fn get_lock_state(state: State<'_, AppState>) -> LockState {
 }
 
 #[tauri::command]
-pub fn get_trusted_session_status() -> TrustedSessionStatus {
-    trusted_session_status()
+pub fn get_trusted_session_status(state: State<'_, AppState>) -> TrustedSessionStatus {
+    trusted_session_status(&state)
 }
 
 #[tauri::command]
@@ -103,29 +156,42 @@ pub fn enable_trusted_session_auto_unlock(
         .set_password(&master_password)
         .map_err(|e| e.to_string())?;
 
-    Ok(trusted_session_status())
+    Ok(trusted_session_status(&state))
 }
 
 #[tauri::command]
 pub fn disable_trusted_session_auto_unlock() -> Result<TrustedSessionStatus, String> {
-    let status = trusted_session_status();
+    let status = if trusted_session_available() {
+        TrustedSessionStatus {
+            available: true,
+            enabled: true,
+        }
+    } else {
+        TrustedSessionStatus {
+            available: false,
+            enabled: false,
+        }
+    };
     if !status.available {
         return Ok(status);
     }
 
-    if status.enabled {
-        let entry = trusted_session_entry()?;
-        entry.delete_credential().map_err(|e| e.to_string())?;
-    }
+    let entry = trusted_session_entry()?;
+    entry.delete_credential().map_err(|e| e.to_string())?;
 
-    Ok(trusted_session_status())
+    Ok(TrustedSessionStatus {
+        available: true,
+        enabled: false,
+    })
 }
 
 #[tauri::command]
 pub fn attempt_trusted_session_unlock(state: State<'_, AppState>) -> bool {
-    let status = trusted_session_status();
-    if !status.enabled {
-        return false;
+    {
+        let auth = state.auth.lock().expect("auth mutex poisoned");
+        if auth.is_manual_lock() {
+            return false;
+        }
     }
 
     let entry = match trusted_session_entry() {
@@ -137,6 +203,10 @@ pub fn attempt_trusted_session_unlock(state: State<'_, AppState>) -> bool {
         Ok(password) => password,
         Err(_) => return false,
     };
+
+    if !trusted_session_secret_valid(&state, &password) {
+        return false;
+    }
 
     if crate::commands::init::verify_master_password_inner(&state, &password).is_err() {
         return false;
@@ -153,7 +223,7 @@ pub fn attempt_trusted_session_unlock(state: State<'_, AppState>) -> bool {
 #[tauri::command]
 pub fn lock_vault(state: State<'_, AppState>) {
     let mut auth = state.auth.lock().expect("auth mutex poisoned");
-    auth.lock();
+    auth.lock_manual();
 
     let mut key = state.key.lock().expect("key mutex poisoned");
     *key = None;
@@ -275,7 +345,7 @@ pub fn request_auth(state: State<'_, AppState>) -> AuthCheckResult {
         };
     }
 
-    if trusted_session_status().enabled {
+    if trusted_session_status(&state).enabled {
         return AuthCheckResult {
             authorized: true,
             reason: None,
