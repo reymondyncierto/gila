@@ -213,6 +213,9 @@ pub fn attempt_trusted_session_unlock(state: State<'_, AppState>) -> bool {
     }
 
     let mut auth = state.auth.lock().expect("auth mutex poisoned");
+    if auth.is_manual_lock() {
+        return false;
+    }
     auth.unlock();
     drop(auth);
 
