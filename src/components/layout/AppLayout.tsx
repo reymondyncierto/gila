@@ -24,6 +24,12 @@ interface TrustedSessionStatus {
   enabled: boolean;
 }
 
+type AutoLockTimeoutValue = "never" | "5m" | "15m" | "1h";
+
+interface AutoLockTimeoutStatus {
+  value: AutoLockTimeoutValue;
+}
+
 export default function AppLayout({ onLock }: AppLayoutProps) {
   const [selectedCategory, setSelectedCategory] = useState<Category>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -47,6 +53,8 @@ export default function AppLayout({ onLock }: AppLayoutProps) {
   const [trustedSessionPassword, setTrustedSessionPassword] = useState("");
   const [trustedSessionError, setTrustedSessionError] = useState("");
   const [trustedSessionBusy, setTrustedSessionBusy] = useState(false);
+  const [autoLockTimeout, setAutoLockTimeout] = useState<AutoLockTimeoutValue>("5m");
+  const [autoLockTimeoutBusy, setAutoLockTimeoutBusy] = useState(false);
 
   // Detect new credentials added via browser extension bridge
   useEffect(() => {
@@ -82,6 +90,26 @@ export default function AppLayout({ onLock }: AppLayoutProps) {
       .catch(() => {
         if (!cancelled) {
           setTrustedSessionStatus({ available: false, enabled: false });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    invoke<AutoLockTimeoutStatus>("get_auto_lock_timeout")
+      .then((status) => {
+        if (!cancelled) {
+          setAutoLockTimeout(status.value);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAutoLockTimeout("5m");
         }
       });
 
@@ -147,6 +175,20 @@ export default function AppLayout({ onLock }: AppLayoutProps) {
     }
   }
 
+  async function handleAutoLockTimeoutChange(value: AutoLockTimeoutValue) {
+    if (autoLockTimeoutBusy || value === autoLockTimeout) return;
+
+    setAutoLockTimeoutBusy(true);
+    try {
+      const status = await invoke<AutoLockTimeoutStatus>("set_auto_lock_timeout", { value });
+      setAutoLockTimeout(status.value);
+    } catch (err) {
+      console.error("Failed to update auto-lock timeout:", err);
+    } finally {
+      setAutoLockTimeoutBusy(false);
+    }
+  }
+
   function handleCreate() {
     setView("create");
     setSelectedId(null);
@@ -198,9 +240,12 @@ export default function AppLayout({ onLock }: AppLayoutProps) {
         }}
         onLock={handleLock}
         onToggleTrustedSession={handleToggleTrustedSession}
+        onAutoLockTimeoutChange={handleAutoLockTimeoutChange}
         trustedSessionAvailable={trustedSessionStatus.available}
         trustedSessionEnabled={trustedSessionStatus.enabled}
         trustedSessionBusy={trustedSessionBusy}
+        autoLockTimeout={autoLockTimeout}
+        autoLockTimeoutBusy={autoLockTimeoutBusy}
       />
       <div className="w-72 h-full border-r border-slate-200 bg-white flex flex-col">
         <div className="p-3 space-y-2 border-b border-slate-100">

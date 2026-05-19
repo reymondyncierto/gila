@@ -12,10 +12,20 @@ interface SidebarProps {
   onSelect: (category: Category) => void;
   onLock: () => void;
   onToggleTrustedSession: () => void;
+  onAutoLockTimeoutChange: (value: "never" | "5m" | "15m" | "1h") => void;
   trustedSessionAvailable: boolean;
   trustedSessionEnabled: boolean;
   trustedSessionBusy: boolean;
+  autoLockTimeout: "never" | "5m" | "15m" | "1h";
+  autoLockTimeoutBusy: boolean;
 }
+
+const autoLockTimeoutOptions: { value: "never" | "5m" | "15m" | "1h"; label: string }[] = [
+  { value: "never", label: "Never" },
+  { value: "5m", label: "5m" },
+  { value: "15m", label: "15m" },
+  { value: "1h", label: "1h" },
+];
 
 const categories: { key: Category; label: string; icon: React.ReactNode }[] = [
   {
@@ -88,9 +98,12 @@ export default function Sidebar({
   onSelect,
   onLock,
   onToggleTrustedSession,
+  onAutoLockTimeoutChange,
   trustedSessionAvailable,
   trustedSessionEnabled,
   trustedSessionBusy,
+  autoLockTimeout,
+  autoLockTimeoutBusy,
 }: SidebarProps) {
   return (
     <aside className="w-60 h-full flex flex-col bg-white border-r border-slate-200">
@@ -163,6 +176,28 @@ export default function Sidebar({
             </div>
           </button>
         )}
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="mb-2">
+            <p className="text-sm font-medium text-slate-700">Auto-lock timeout</p>
+            <p className="text-[11px] text-slate-400 leading-tight">
+              Locks the vault after inactivity
+            </p>
+          </div>
+          <select
+            value={autoLockTimeout}
+            onChange={(event) => onAutoLockTimeoutChange(event.target.value as typeof autoLockTimeout)}
+            disabled={autoLockTimeoutBusy}
+            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm text-slate-700 shadow-sm outline-none transition-colors focus:border-sky-400 focus:ring-2 focus:ring-sky-100 disabled:cursor-not-allowed disabled:opacity-70"
+            aria-label="Auto-lock timeout"
+          >
+            {autoLockTimeoutOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <p className="text-[11px] text-slate-300 text-center">Gila v1.0</p>
       </div>

@@ -68,7 +68,7 @@ pub fn run() {
             db::initialize_db(&pool).expect("failed to initialize database");
 
             let key = Arc::new(Mutex::new(None));
-            let auth_state = Arc::new(Mutex::new(auth::AuthState::new()));
+            let auth_state = Arc::new(Mutex::new(auth::AuthState::new(auth::load_auto_lock_timeout())));
             let pending = Arc::new(Mutex::new(Vec::new()));
             let handle = Arc::new(Mutex::new(Some(app.handle().clone())));
 
@@ -172,6 +172,8 @@ pub fn run() {
             commands::clipboard::copy_to_clipboard,
             commands::auth::get_lock_state,
             commands::auth::get_trusted_session_status,
+            commands::auth::get_auto_lock_timeout,
+            commands::auth::set_auto_lock_timeout,
             commands::auth::enable_trusted_session_auto_unlock,
             commands::auth::disable_trusted_session_auto_unlock,
             commands::auth::attempt_trusted_session_unlock,

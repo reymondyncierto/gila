@@ -1,6 +1,7 @@
 use serde::Serialize;
 use tauri::State;
 
+use crate::auth::{self, AutoLockTimeout};
 use crate::commands::init::InitError;
 use crate::crypto;
 use crate::db;
@@ -22,6 +23,23 @@ pub struct LockState {
 pub struct TrustedSessionStatus {
     pub available: bool,
     pub enabled: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AutoLockTimeoutStatus {
+    pub value: String,
+}
+
+fn auto_lock_timeout_status(state: &AppState) -> AutoLockTimeoutStatus {
+    AutoLockTimeoutStatus {
+        value: state.auth.lock().expect("auth mutex poisoned").auto_lock_timeout().storage_value().to_string(),
+    }
+}
+
+fn parse_auto_lock_timeout(value: &str) -> Result<AutoLockTimeout, String> {
+    AutoLockTimeout::from_storage_value(value).ok_or_else(|| {
+        "invalid auto-lock timeout; expected one of: never, 5m, 15m, 1h".to_string()
+    })
 }
 
 fn trusted_session_available() -> bool {
@@ -108,9 +126,7 @@ fn trusted_session_secret_valid(state: &AppState, master_password: &str) -> bool
 pub fn get_lock_state(state: State<'_, AppState>) -> LockState {
     let mut auth = state.auth.lock().expect("auth mutex poisoned");
     let trusted_session = trusted_session_status(&state);
-    if !trusted_session.enabled {
-        auth.check_inactivity();
-    }
+    auth.check_inactivity();
 
     // If auto-lock triggered, also wipe the key
     if auth.is_locked() {
@@ -141,6 +157,25 @@ pub fn get_lock_state(state: State<'_, AppState>) -> LockState {
 #[tauri::command]
 pub fn get_trusted_session_status(state: State<'_, AppState>) -> TrustedSessionStatus {
     trusted_session_status(&state)
+}
+
+#[tauri::command]
+pub fn get_auto_lock_timeout(state: State<'_, AppState>) -> AutoLockTimeoutStatus {
+    auto_lock_timeout_status(&state)
+}
+
+#[tauri::command]
+pub fn set_auto_lock_timeout(
+    state: State<'_, AppState>,
+    value: String,
+) -> Result<AutoLockTimeoutStatus, String> {
+    let timeout = parse_auto_lock_timeout(&value)?;
+    auth::save_auto_lock_timeout(timeout)?;
+
+    let mut auth = state.auth.lock().expect("auth mutex poisoned");
+    auth.set_auto_lock_timeout(timeout);
+
+    Ok(auto_lock_timeout_status(&state))
 }
 
 #[tauri::command]
