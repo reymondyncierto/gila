@@ -174,8 +174,11 @@ pub fn set_auto_lock_timeout(
 
     let mut auth = state.auth.lock().expect("auth mutex poisoned");
     auth.set_auto_lock_timeout(timeout);
+    drop(auth);
 
-    Ok(auto_lock_timeout_status(&state))
+    Ok(AutoLockTimeoutStatus {
+        value: timeout.storage_value().to_string(),
+    })
 }
 
 #[tauri::command]
