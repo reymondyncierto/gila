@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import type { AuthGate } from "../../hooks/useAuthGate";
 import type { CredentialDetail as CredentialDetailType, CredentialType } from "../../types/credentials";
 import { credTypeLabels } from "../../types/credentials";
 
@@ -7,12 +8,14 @@ interface CredentialDetailProps {
   credentialId: string;
   onEdit: () => void;
   onDelete: () => void;
+  gate: AuthGate;
 }
 
 interface FieldDisplayProps {
   label: string;
   value: string;
   sensitive?: boolean;
+  gate: AuthGate;
 }
 
 const typeIcons: Record<CredentialType, React.ReactNode> = {
@@ -43,13 +46,22 @@ const typeIcons: Record<CredentialType, React.ReactNode> = {
   ),
 };
 
-function CopyButton({ value }: { value: string }) {
+function CopyButton({ value, sensitive, gate }: { value: string; sensitive?: boolean; gate: AuthGate }) {
   const [copied, setCopied] = useState(false);
 
-  function handleCopy() {
+  function copyValue() {
     navigator.clipboard.writeText(value);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  }
+
+  function handleCopy() {
+    if (sensitive) {
+      void gate(copyValue, { sensitive: true });
+      return;
+    }
+
+    copyValue();
   }
 
   return (
@@ -71,11 +83,24 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-function FieldDisplay({ label, value, sensitive }: FieldDisplayProps) {
+function FieldDisplay({ label, value, sensitive, gate }: FieldDisplayProps) {
   const [revealed, setRevealed] = useState(false);
   const displayValue = sensitive && !revealed
     ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
     : value;
+
+  function handleReveal() {
+    if (!sensitive) {
+      return;
+    }
+
+    if (revealed) {
+      setRevealed(false);
+      return;
+    }
+
+    void gate(() => setRevealed(true), { sensitive: true });
+  }
 
   return (
     <div className="group px-4 py-3 border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50 transition-colors">
@@ -90,7 +115,7 @@ function FieldDisplay({ label, value, sensitive }: FieldDisplayProps) {
         <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           {sensitive && (
             <button
-              onClick={() => setRevealed(!revealed)}
+              onClick={handleReveal}
               className="p-1.5 rounded-md text-slate-300 hover:text-sky-500 hover:bg-sky-50 transition-colors"
               title={revealed ? "Hide" : "Reveal"}
             >
@@ -106,54 +131,54 @@ function FieldDisplay({ label, value, sensitive }: FieldDisplayProps) {
               )}
             </button>
           )}
-          <CopyButton value={value} />
+          <CopyButton value={value} sensitive={sensitive} gate={gate} />
         </div>
       </div>
     </div>
   );
 }
 
-function renderFields(credType: CredentialType, data: Record<string, string>) {
+function renderFields(credType: CredentialType, data: Record<string, string>, gate: AuthGate) {
   switch (credType) {
     case "login":
       return (
         <>
-          <FieldDisplay label="Service" value={data.service_name || ""} />
-          <FieldDisplay label="URL" value={data.url || ""} />
-          <FieldDisplay label="Username" value={data.username || ""} />
-          <FieldDisplay label="Password" value={data.password || ""} sensitive />
+          <FieldDisplay label="Service" value={data.service_name || ""} gate={gate} />
+          <FieldDisplay label="URL" value={data.url || ""} gate={gate} />
+          <FieldDisplay label="Username" value={data.username || ""} gate={gate} />
+          <FieldDisplay label="Password" value={data.password || ""} sensitive gate={gate} />
         </>
       );
     case "app_password":
       return (
         <>
-          <FieldDisplay label="App Name" value={data.app_name || ""} />
-          <FieldDisplay label="Linked Account" value={data.linked_account || ""} />
-          <FieldDisplay label="Password" value={data.password || ""} sensitive />
+          <FieldDisplay label="App Name" value={data.app_name || ""} gate={gate} />
+          <FieldDisplay label="Linked Account" value={data.linked_account || ""} gate={gate} />
+          <FieldDisplay label="Password" value={data.password || ""} sensitive gate={gate} />
         </>
       );
     case "api_key":
       return (
         <>
-          <FieldDisplay label="Service" value={data.service || ""} />
-          <FieldDisplay label="Environment" value={data.environment || ""} />
-          <FieldDisplay label="Key" value={data.key || ""} sensitive />
-          {data.secret && <FieldDisplay label="Secret" value={data.secret} sensitive />}
+          <FieldDisplay label="Service" value={data.service || ""} gate={gate} />
+          <FieldDisplay label="Environment" value={data.environment || ""} gate={gate} />
+          <FieldDisplay label="Key" value={data.key || ""} sensitive gate={gate} />
+          {data.secret && <FieldDisplay label="Secret" value={data.secret} sensitive gate={gate} />}
         </>
       );
     case "wifi":
       return (
         <>
-          <FieldDisplay label="SSID" value={data.ssid || ""} />
-          <FieldDisplay label="Security Type" value={data.security_type || ""} />
-          <FieldDisplay label="Password" value={data.password || ""} sensitive />
+          <FieldDisplay label="SSID" value={data.ssid || ""} gate={gate} />
+          <FieldDisplay label="Security Type" value={data.security_type || ""} gate={gate} />
+          <FieldDisplay label="Password" value={data.password || ""} sensitive gate={gate} />
         </>
       );
     case "secure_note":
       return (
         <>
-          <FieldDisplay label="Title" value={data.title || ""} />
-          <FieldDisplay label="Note" value={data.body || ""} sensitive />
+          <FieldDisplay label="Title" value={data.title || ""} gate={gate} />
+          <FieldDisplay label="Note" value={data.body || ""} sensitive gate={gate} />
         </>
       );
     default:
@@ -161,7 +186,7 @@ function renderFields(credType: CredentialType, data: Record<string, string>) {
   }
 }
 
-export default function CredentialDetail({ credentialId, onEdit, onDelete }: CredentialDetailProps) {
+export default function CredentialDetail({ credentialId, onEdit, onDelete, gate }: CredentialDetailProps) {
   const [detail, setDetail] = useState<CredentialDetailType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -223,7 +248,7 @@ export default function CredentialDetail({ credentialId, onEdit, onDelete }: Cre
 
       {/* Fields card */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        {renderFields(detail.cred_type, data)}
+        {renderFields(detail.cred_type, data, gate)}
       </div>
 
       <p className="text-[11px] text-slate-300 mt-4 text-center">

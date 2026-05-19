@@ -314,6 +314,7 @@ export default function AppLayout({ onLock }: AppLayoutProps) {
             credentialId={selectedId}
             onEdit={handleEdit}
             onDelete={handleDeleteRequest}
+            gate={gate}
           />
         )}
       </DetailPanel>

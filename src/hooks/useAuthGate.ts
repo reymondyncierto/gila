@@ -6,13 +6,21 @@ interface AuthCheckResult {
   reason: string | null;
 }
 
+export interface AuthGateOptions {
+  sensitive?: boolean;
+}
+
+export type AuthGate = (action: () => void, options?: AuthGateOptions) => Promise<void>;
+
 export function useAuthGate() {
   const [showAuthPrompt, setShowAuthPrompt] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
 
-  const gate = useCallback(async (action: () => void) => {
+  const gate = useCallback<AuthGate>(async (action, options) => {
     try {
-      const result = await invoke<AuthCheckResult>("request_auth");
+      const result = await invoke<AuthCheckResult>("request_auth", {
+        sensitive: options?.sensitive ?? false,
+      });
       if (result.authorized) {
         action();
       } else {

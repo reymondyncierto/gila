@@ -376,13 +376,21 @@ pub struct AuthCheckResult {
 }
 
 #[tauri::command]
-pub fn request_auth(state: State<'_, AppState>) -> AuthCheckResult {
+pub fn request_auth(state: State<'_, AppState>, sensitive: Option<bool>) -> AuthCheckResult {
     let auth = state.auth.lock().expect("auth mutex poisoned");
+    let sensitive = sensitive.unwrap_or(false);
 
     if auth.is_locked() {
         return AuthCheckResult {
             authorized: false,
             reason: Some("vault_locked".to_string()),
+        };
+    }
+
+    if sensitive {
+        return AuthCheckResult {
+            authorized: false,
+            reason: Some("sensitive_action_requires_reauth".to_string()),
         };
     }
 
